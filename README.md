@@ -8,6 +8,18 @@
    
    Example of how to generate code of your node:
    
-   `ergo -init -with-app MyApp -with-sup MyApp:MySup -with-actor MySup:MyActor`
+   `ergo -init myproject -with-app MyApp -with-sup MyApp:MySup -with-actor MySup:MyActor -with-msg MyMessage`
+   
+   as a result you will get generated project:
+   ```
+   myproject/            
+   |-- apps/
+   |   `-- myapp/
+   |       |-- myactor.go
+   |       |-- myapp.go
+   |       `-- mysup.go
+   |-- node.go
+   `-- types.go
+   ```
    
    See `ergo -help` for more information

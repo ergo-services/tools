@@ -11,9 +11,15 @@ const (
 
 //go:embed node.tpl
 var nodeTemplateText string
-var nodeTemplate, nodeTemplateErr = template.New(nodeTemplateFile).Parse(nodeTemplateText)
+var nodeTemplates = []*template.Template{
+	templateInit(nodeTemplateFile, nodeTemplateText),
+}
 
 type nodeTemplateData struct {
-	Name  string
-	Cloud string
+	Package       string
+	Name          string
+	Cloud         string
+	Applications  []string
+	Processes     []string
+	RegisterTypes bool
 }

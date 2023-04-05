@@ -16,14 +16,12 @@ func (l *listOptions) Set(value string) error {
 type item struct {
 	app      string
 	name     string
-	tmpl     *template.Template
+	tmpl     []*template.Template
 	data     any
 	children []*item
-
-	dict map[string]*item
 }
 
 type actor struct {
 	list listOptions
-	tmpl *template.Template
+	tmpl []*template.Template
 }

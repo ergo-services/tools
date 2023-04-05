@@ -11,4 +11,12 @@ const (
 
 //go:embed actor.tpl
 var actorTemplateText string
-var actorTemplate, _ = template.New(actorTemplateFile).Parse(actorTemplateText)
+
+var actorTemplates = []*template.Template{
+	templateInit(actorTemplateFile, actorTemplateText),
+}
+
+type actorTemplateData struct {
+	Package string
+	Name    string
+}

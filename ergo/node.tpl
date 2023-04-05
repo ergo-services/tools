@@ -1,4 +1,4 @@
-package main
+package {{.Name}}
 
 import (
 	"crypto/rand"
@@ -29,6 +29,7 @@ func init() {
 	flag.StringVar(&OptionNodeName, "name", "{{.Name}}@localhost", "node name")
 	flag.StringVar(&OptionNodeCookie, "cookie", randomCookie, "a secret cookie for interaction within the cluster")
 	{{ if .Cloud }}
+	// cloud options
 	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{.Cloud}}", "cloud cluster name")
 	flag.StringVar(&OptionCloudClusterCookie, "cloud-cookie", "", "cloud cluster cookie")
 	{{ end }}
@@ -38,6 +39,14 @@ func main() {
 	var options node.Options
 
 	flag.Parse()
+
+	{{ if .Applications }}
+	// create applications that must be started
+	apps := []gen.ApplicationBehavior{ {{ range .Applications }}
+	Create{{ . }}(), {{ end }}
+	}
+	options.Applications = apps
+	{{ end }}
 
 	{{ if .Cloud }}
 	// Enable cloud feature.
@@ -52,11 +61,27 @@ func main() {
 	options.Proxy.Accept = true
 	{{ end }}
 
-	fmt.Println("Start node %q\n", OptionNodeName)
-	{{.Name}}Node, _ := ergo.StartNode(OptionNodeName, OptionNodeCookie, options)
+	// starting node
+	{{.Name}}Node, err := ergo.StartNode(OptionNodeName, OptionNodeCookie, options)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("node %q is started\n", {{.Name}}Node.Name())
 
-	process, _ := myNode.Spawn("simple", gen.ProcessOptions{}, &simple{})
-	fmt.Printf("Started process %s with name %q\n", process.Self(), process.Name())
+	{{ if .RegisterTypes }}
+	if err := registerTypes(); err != nil {
+		panic(err)
+	}
+	{{ end }}
+
+	{{ range .Processes }}
+	// starting process {{ . }}
+	process, err := {{$.Name}}Node.Spawn(strings.ToLower("{{ . }}"), gen.ProcessOptions{}, &{{ . }}{})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("  process %q with PID %s is started\n", process.Name(), process.Self())
+	{{ end }}
 
 	{{.Name}}Node.Wait()
 }

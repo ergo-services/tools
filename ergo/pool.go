@@ -6,9 +6,22 @@ import (
 )
 
 const (
-	poolTemplateFile = "pool.tpl"
+	poolTemplateActorFile  = "pool.tpl"
+	poolTemplateWorkerFile = "pool_worker.tpl"
 )
 
 //go:embed pool.tpl
-var poolTemplateText string
-var poolTemplate, _ = template.New(poolTemplateFile).Parse(poolTemplateText)
+var poolTemplateActorText string
+
+//go:embed pool_worker.tpl
+var poolTemplateWorkerText string
+
+var poolTemplates = []*template.Template{
+	templateInit(poolTemplateActorFile, poolTemplateActorText),
+	templateInit(poolTemplateWorkerFile, poolTemplateWorkerText),
+}
+
+type poolTemplateData struct {
+	Package string
+	Name    string
+}

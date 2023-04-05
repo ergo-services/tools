@@ -6,9 +6,22 @@ import (
 )
 
 const (
-	stageTemplateFile = "stage.tpl"
+	stageTemplateActorFile      = "stage.tpl"
+	stageTemplateDispatcherFile = "stage_dispatcher.tpl"
 )
 
 //go:embed stage.tpl
-var stageTemplateText string
-var stageTemplate, _ = template.New(stageTemplateFile).Parse(stageTemplateText)
+var stageTemplateActorText string
+
+//go:embed stage_dispatcher.tpl
+var stageTemplateDispatcherText string
+
+var stageTemplates = []*template.Template{
+	templateInit(stageTemplateActorFile, stageTemplateActorText),
+	templateInit(stageTemplateDispatcherFile, stageTemplateDispatcherText),
+}
+
+type stageTemplateData struct {
+	Package string
+	Name    string
+}

@@ -6,9 +6,22 @@ import (
 )
 
 const (
-	webTemplateFile = "web.tpl"
+	webTemplateActorFile   = "web.tpl"
+	webTemplateHandlerFile = "web_handler.tpl"
 )
 
 //go:embed web.tpl
-var webTemplateText string
-var webTemplate, _ = template.New(webTemplateFile).Parse(webTemplateText)
+var webTemplateActorText string
+
+//go:embed web_handler.tpl
+var webTemplateHandlerText string
+
+var webTemplates = []*template.Template{
+	templateInit(webTemplateActorFile, webTemplateActorText),
+	templateInit(webTemplateHandlerFile, webTemplateHandlerText),
+}
+
+type webTemplateData struct {
+	Package string
+	Name    string
+}

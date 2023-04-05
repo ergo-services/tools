@@ -6,9 +6,22 @@ import (
 )
 
 const (
-	tcpTemplateFile = "tcp.tpl"
+	tcpTemplateActorFile   = "tcp.tpl"
+	tcpTemplateHandlerFile = "tcp_handler.tpl"
 )
 
 //go:embed tcp.tpl
-var tcpTemplateText string
-var tcpTemplate, _ = template.New(tcpTemplateFile).Parse(tcpTemplateText)
+var tcpTemplateActorText string
+
+//go:embed tcp_handler.tpl
+var tcpTemplateHandlerText string
+
+var tcpTemplates = []*template.Template{
+	templateInit(tcpTemplateActorFile, tcpTemplateActorText),
+	templateInit(tcpTemplateHandlerFile, tcpTemplateHandlerText),
+}
+
+type tcpTemplateData struct {
+	Package string
+	Name    string
+}

@@ -11,4 +11,13 @@ const (
 
 //go:embed sup.tpl
 var supTemplateText string
-var supTemplate, _ = template.New(supTemplateFile).Parse(supTemplateText)
+
+var supTemplates = []*template.Template{
+	templateInit(supTemplateFile, supTemplateText),
+}
+
+type supTemplateData struct {
+	Package  string
+	Name     string
+	Children []string
+}

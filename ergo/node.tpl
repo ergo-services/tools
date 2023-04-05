@@ -1,11 +1,12 @@
-package {{.Name}}
+package {{.Package}}
 
 import (
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
 	"fmt"
-
+	{{ range index .Params "applications" }} "{{ $.Name }}/apps/{{ .LoName }}"
+	{{ end }}
 	"github.com/ergo-services/ergo"
 	"github.com/ergo-services/ergo/gen"
 	"github.com/ergo-services/ergo/node"
@@ -14,7 +15,7 @@ import (
 var (
 	OptionNodeName   string
 	OptionNodeCookie string
-	{{ if .Cloud }}
+	{{ if index .Params "cloud" }}
 	OptionCloudClusterName   string
 	OptionCloudClusterCookie string
 	{{ end }}
@@ -24,31 +25,32 @@ func init() {
 	// generate random value for cookie
 	buff := make([]byte, 12)
 	rand.Read(buff)
-	randomCookie = hex.EncodeToString(buff)
+	randomCookie := hex.EncodeToString(buff)
 
 	flag.StringVar(&OptionNodeName, "name", "{{.Name}}@localhost", "node name")
 	flag.StringVar(&OptionNodeCookie, "cookie", randomCookie, "a secret cookie for interaction within the cluster")
-	{{ if .Cloud }}
+	{{ if index .Params "cloud" }}
 	// cloud options
-	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{.Cloud}}", "cloud cluster name")
+	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{ index .Params "cloud" }}", "cloud cluster name")
 	flag.StringVar(&OptionCloudClusterCookie, "cloud-cookie", "", "cloud cluster cookie")
 	{{ end }}
 }
 
 func main() {
 	var options node.Options
+	var process gen.Process
 
 	flag.Parse()
 
-	{{ if .Applications }}
+	{{ if index .Params "applications" }}
 	// create applications that must be started
-	apps := []gen.ApplicationBehavior{ {{ range .Applications }}
-	Create{{ . }}(), {{ end }}
+	apps := []gen.ApplicationBehavior{ {{ range index .Params "applications" }}
+	{{ .LoName }}.Create{{ .Name }}(), {{ end }}
 	}
 	options.Applications = apps
 	{{ end }}
 
-	{{ if .Cloud }}
+	{{ if index .Params "cloud" }}
 	// Enable cloud feature.
 	options.Cloud.Enable = true
 
@@ -68,15 +70,15 @@ func main() {
 	}
 	fmt.Printf("node %q is started\n", {{.Name}}Node.Name())
 
-	{{ if .RegisterTypes }}
-	if err := registerTypes(); err != nil {
-		panic(err)
-	}
+	{{ if index .Params "register" }}
+	//if err := registerTypes(); err != nil {
+	//	panic(err)
+	//}
 	{{ end }}
 
-	{{ range .Processes }}
-	// starting process {{ . }}
-	process, err := {{$.Name}}Node.Spawn(strings.ToLower("{{ . }}"), gen.ProcessOptions{}, &{{ . }}{})
+	{{ range .Children}}
+	// starting process {{ .Name }}
+	process, err = {{$.Name}}Node.Spawn("{{ .LoName }}", gen.ProcessOptions{}, &{{ .Name }}{})
 	if err != nil {
 		panic(err)
 	}

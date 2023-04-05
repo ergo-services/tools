@@ -10,23 +10,20 @@ import (
 	"strings"
 )
 
-func generateProject(i *item, dir string) error {
-	for _, child := range i.children {
-		childDir := path.Join(dir, child.app)
-		if err := generateProject(child, childDir); err != nil {
+func generate(option *Option) error {
+	for _, t := range option.Templates {
+		if err := os.MkdirAll(option.Dir, os.ModePerm); err != nil {
 			return err
 		}
-	}
-
-	for _, t := range i.tmpl {
+		fmt.Println("LLL", option.IsApp, option.Name, option.Package, option.Dir)
 		// template has format name.tpl or name_xxx.tpl
 		// we need to compose file name like - <i.name>.go or <i.name>_<xxx>.go
-		name := i.name
+		name := option.Name
 		if _, xxx, found := strings.Cut(t.Name(), "_"); found {
 			xxx, _ := strings.CutSuffix(xxx, ".tpl")
 			name = name + "_" + xxx
 		}
-		file := strings.ToLower(path.Join(dir, name+".go"))
+		file := strings.ToLower(path.Join(option.Dir, name+".go"))
 		projectFile, err := os.Create(file)
 		if err != nil {
 			return err
@@ -34,16 +31,17 @@ func generateProject(i *item, dir string) error {
 		defer projectFile.Close()
 
 		fmt.Printf("   generating %q\n", file)
-		buf, err := generate(t, i.data)
+		buf, err := generateFile(t, option)
 		if err != nil {
 			return err
 		}
 		projectFile.Write(buf)
 	}
+
 	return nil
 }
 
-func generate(tmpl *template.Template, data any) ([]byte, error) {
+func generateFile(tmpl *template.Template, data any) ([]byte, error) {
 	if tmpl == nil {
 		panic("template is not initialized")
 	}
@@ -52,6 +50,7 @@ func generate(tmpl *template.Template, data any) ([]byte, error) {
 		return nil, err
 	}
 
+	fmt.Println(data)
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
 		return nil, err
@@ -67,3 +66,45 @@ func templateInit(name string, text string) *template.Template {
 	}
 	return tmpl
 }
+
+//func generateProject(i *item, dir string) error {
+//	fmt.Printf("III %#v\n", i)
+//	for _, child := range i.children {
+//		fmt.Printf("III child %#v\n", child)
+//		childDir := dir
+//		if i.pkg != child.pkg {
+//			childDir = path.Join(dir, child.pkg)
+//		}
+//		fmt.Println("III child dir: ", childDir)
+//		if err := os.MkdirAll(childDir, os.ModePerm); err != nil {
+//			return err
+//		}
+//		if err := generateProject(child, childDir); err != nil {
+//			return err
+//		}
+//	}
+//
+//	for _, t := range i.tmpl {
+//		// template has format name.tpl or name_xxx.tpl
+//		// we need to compose file name like - <i.name>.go or <i.name>_<xxx>.go
+//		name := i.name
+//		if _, xxx, found := strings.Cut(t.Name(), "_"); found {
+//			xxx, _ := strings.CutSuffix(xxx, ".tpl")
+//			name = name + "_" + xxx
+//		}
+//		file := strings.ToLower(path.Join(dir, name+".go"))
+//		projectFile, err := os.Create(file)
+//		if err != nil {
+//			return err
+//		}
+//		defer projectFile.Close()
+//
+//		fmt.Printf("   generating %q\n", file)
+//		buf, err := generate(t, i.data)
+//		if err != nil {
+//			return err
+//		}
+//		projectFile.Write(buf)
+//	}
+//	return nil
+//}

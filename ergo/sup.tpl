@@ -1,27 +1,27 @@
-package {{.Package}}
+package {{ .Package }}
 
 import (
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 )
 
-func Create{{.Name}}() gen.SupervisorBehavior {
-	return &{{.Name}}{}
+func create{{ .Name }}() gen.SupervisorBehavior {
+	return &{{ .Name }}{}
 }
 
-type {{.Name}} struct {
+type {{ .Name }} struct {
 	gen.Supervisor
 }
 
-func (sup *{{.Name}}) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
+func (sup *{{ .Name }}) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 	spec := gen.SupervisorSpec{
-		Name: strings.ToLower("{{.Name}}"),
+		Name: "{{ .LoName }}",
 		Children: []gen.SupervisorChildSpec{ {{ range .Children }}
 			gen.SupervisorChildSpec{
-				Name:  strings.ToLower("{{ . }}"),
-				Child: Create{{ . }}(),
+				Name:  "{{ .LoName }}",
+				Child: create{{ .Name }}(),
 			},
-		{{ end }}},
+		{{ end }} },
 		Strategy: gen.SupervisorStrategy{
 			Type:      gen.SupervisorStrategyOneForAll,
 			Intensity: 2,

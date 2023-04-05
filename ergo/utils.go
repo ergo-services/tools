@@ -15,7 +15,6 @@ func generate(option *Option) error {
 		if err := os.MkdirAll(option.Dir, os.ModePerm); err != nil {
 			return err
 		}
-		fmt.Println("LLL", option.IsApp, option.Name, option.Package, option.Dir)
 		// template has format name.tpl or name_xxx.tpl
 		// we need to compose file name like - <i.name>.go or <i.name>_<xxx>.go
 		name := option.Name
@@ -50,7 +49,6 @@ func generateFile(tmpl *template.Template, data any) ([]byte, error) {
 		return nil, err
 	}
 
-	fmt.Println(data)
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
 		return nil, err

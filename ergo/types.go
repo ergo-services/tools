@@ -64,7 +64,6 @@ func (l *listOptions) Set(value string) error {
 	op.Package = "main"
 	optionsDict[op.Name] = &op
 	if op.Parent != nil {
-		fmt.Println(op.Parent.Name+" has child ", op.Name)
 		op.Parent.Children = append(op.Parent.Children, &op)
 	}
 

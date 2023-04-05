@@ -59,6 +59,11 @@ func (l *listOptions) Set(value string) error {
 		op.Parent = parent
 		value = s[1]
 	}
+
+	if err := validateName(value); err != nil {
+		return fmt.Errorf("invalid name %q", value)
+	}
+
 	op.Name = value
 	op.LoName = strings.ToLower(value)
 	op.Package = "main"
@@ -118,4 +123,9 @@ func parseParams(p string) (map[string]any, error) {
 		fmt.Println(pairs)
 	}
 	return params, nil
+}
+
+func validateName(name string) error {
+	// TODO
+	return nil
 }

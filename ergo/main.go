@@ -119,11 +119,13 @@ func main() {
 		fmt.Printf("error: can not generate go.mod file - %s", err)
 		return
 	}
+	fmt.Printf("   generating %q\n", "go.mod")
 	cmd := exec.Command("go", "mod", "init", optionNode.Name)
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("error: can not generate go.mod file - %s", err)
 		return
 	}
+	fmt.Printf("   generating %q\n", "go.sum")
 	cmd = exec.Command("go", "mod", "tidy")
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("error: can not generate go.mod file - %s", err)

@@ -67,6 +67,9 @@ func (l *listOptions) Set(value string) error {
 	op.Name = value
 	op.LoName = strings.ToLower(value)
 	op.Package = "main"
+	if _, exist := optionsDict[op.Name]; exist {
+		return fmt.Errorf("duplicate name %q", op.Name)
+	}
 	optionsDict[op.Name] = &op
 	if op.Parent != nil {
 		op.Parent.Children = append(op.Parent.Children, &op)

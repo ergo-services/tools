@@ -20,8 +20,3 @@ var poolTemplates = []*template.Template{
 	templateInit(poolTemplateActorFile, poolTemplateActorText),
 	templateInit(poolTemplateWorkerFile, poolTemplateWorkerText),
 }
-
-type poolTemplateData struct {
-	Package string
-	Name    string
-}

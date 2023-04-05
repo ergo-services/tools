@@ -20,8 +20,3 @@ var webTemplates = []*template.Template{
 	templateInit(webTemplateActorFile, webTemplateActorText),
 	templateInit(webTemplateHandlerFile, webTemplateHandlerText),
 }
-
-type webTemplateData struct {
-	Package string
-	Name    string
-}

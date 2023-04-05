@@ -14,12 +14,3 @@ var nodeTemplateText string
 var nodeTemplates = []*template.Template{
 	templateInit(nodeTemplateFile, nodeTemplateText),
 }
-
-type nodeTemplateData struct {
-	Package       string
-	Name          string
-	Cloud         string
-	Applications  []string
-	Processes     []string
-	RegisterTypes bool
-}

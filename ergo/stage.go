@@ -20,8 +20,3 @@ var stageTemplates = []*template.Template{
 	templateInit(stageTemplateActorFile, stageTemplateActorText),
 	templateInit(stageTemplateDispatcherFile, stageTemplateDispatcherText),
 }
-
-type stageTemplateData struct {
-	Package string
-	Name    string
-}

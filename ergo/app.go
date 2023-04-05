@@ -15,9 +15,3 @@ var appTemplateText string
 var appTemplates = []*template.Template{
 	templateInit(appTemplateFile, appTemplateText),
 }
-
-type appTemplateData struct {
-	Package  string
-	Name     string
-	Children []string
-}

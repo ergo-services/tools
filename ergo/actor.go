@@ -15,8 +15,3 @@ var actorTemplateText string
 var actorTemplates = []*template.Template{
 	templateInit(actorTemplateFile, actorTemplateText),
 }
-
-type actorTemplateData struct {
-	Package string
-	Name    string
-}

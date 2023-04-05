@@ -20,8 +20,3 @@ var udpTemplates = []*template.Template{
 	templateInit(udpTemplateActorFile, udpTemplateActorText),
 	templateInit(udpTemplateHandlerFile, udpTemplateHandlerText),
 }
-
-type udpTemplateData struct {
-	Package string
-	Name    string
-}

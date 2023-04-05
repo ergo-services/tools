@@ -20,8 +20,3 @@ var sagaTemplates = []*template.Template{
 	templateInit(sagaTemplateActorFile, sagaTemplateActorText),
 	templateInit(sagaTemplateWorkerFile, sagaTemplateWorkerText),
 }
-
-type sagaTemplateData struct {
-	Package string
-	Name    string
-}

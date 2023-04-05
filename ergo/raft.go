@@ -15,8 +15,3 @@ var raftTemplateText string
 var raftTemplates = []*template.Template{
 	templateInit(raftTemplateFile, raftTemplateText),
 }
-
-type raftTemplateData struct {
-	Package string
-	Name    string
-}

@@ -20,8 +20,3 @@ var tcpTemplates = []*template.Template{
 	templateInit(tcpTemplateActorFile, tcpTemplateActorText),
 	templateInit(tcpTemplateHandlerFile, tcpTemplateHandlerText),
 }
-
-type tcpTemplateData struct {
-	Package string
-	Name    string
-}

@@ -5,6 +5,11 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+
+	{{ if index .Params "register" }}
+	"{{ .Name }}"
+	{{ end }}
+
 	{{ range index .Params "applications" }} "{{ $.Name }}/apps/{{ .LoName }}"
 	{{ end }}
 	"github.com/ergo-services/ergo"
@@ -71,9 +76,9 @@ func main() {
 	fmt.Printf("node %q is started\n", {{.Name}}Node.Name())
 
 	{{ if index .Params "register" }}
-	//if err := registerTypes(); err != nil {
-	//	panic(err)
-	//}
+	if err := {{ .Name }}.RegisterTypes(); err != nil {
+		panic(err)
+	}
 	{{ end }}
 
 	{{ range .Children}}

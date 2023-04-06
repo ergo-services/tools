@@ -3,8 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
-	"os/exec"
 	"path"
 	"strings"
 )
@@ -89,13 +87,10 @@ func main() {
 			}
 		}
 	}
+
 	// node options - applications
-	apps := []*Option{}
-	for _, app := range OptionWithApp {
-		apps = append(apps, app)
-	}
-	if len(apps) > 0 {
-		optionNode.Params["applications"] = apps
+	if len(OptionWithApp) > 0 {
+		optionNode.Params["applications"] = OptionWithApp
 	}
 	// node options - cloud
 	if OptionWithCloud != "" {
@@ -109,27 +104,28 @@ func main() {
 		fmt.Printf("error: %s\n", err)
 		return
 	}
-	currentDir, err := os.Getwd()
-	if err != nil {
+
+	// node options - messages for networking
+	msgs := []*Option{}
+	optionType := Option{
+		Name:      "types",
+		Dir:       dir,
+		Package:   optionNode.Name,
+		Templates: typesTemplates,
+		Params:    make(map[string]any),
+		Children:  OptionWithMsg,
+	}
+	for _, msg := range OptionWithMsg {
+		msgs = append(msgs, msg)
+	}
+	if err := generate(&optionType); err != nil {
+		fmt.Printf("error: %s\n", err)
+		return
+	}
+
+	if err := generateGoMod(&optionNode); err != nil {
 		fmt.Printf("error: can not generate go.mod file - %s", err)
 		return
 	}
-	if err := os.Chdir(optionNode.Dir); err != nil {
-		fmt.Printf("error: can not generate go.mod file - %s", err)
-		return
-	}
-	fmt.Printf("   generating %q\n", "go.mod")
-	cmd := exec.Command("go", "mod", "init", optionNode.Name)
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("error: can not generate go.mod file - %s", err)
-		return
-	}
-	fmt.Printf("   generating %q\n", "go.sum")
-	cmd = exec.Command("go", "mod", "tidy")
-	if err := cmd.Run(); err != nil {
-		fmt.Printf("error: can not generate go.mod file - %s", err)
-		return
-	}
-	os.Chdir(currentDir)
 	fmt.Println("Successfully completed.")
 }

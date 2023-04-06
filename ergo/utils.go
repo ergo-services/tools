@@ -6,13 +6,18 @@ import (
 	format "go/format"
 	"html/template"
 	"os"
+	"os/exec"
 	"path"
 	"strings"
 )
 
 func generate(option *Option) error {
 	for _, t := range option.Templates {
-		if err := os.MkdirAll(option.Dir, os.ModePerm); err != nil {
+		dir := option.Dir
+		if option.Package == "main" {
+			dir = path.Join(dir, "cmd")
+		}
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 			return err
 		}
 		// template has format name.tpl or name_xxx.tpl
@@ -22,7 +27,7 @@ func generate(option *Option) error {
 			xxx, _ := strings.CutSuffix(xxx, ".tpl")
 			name = name + "_" + xxx
 		}
-		file := strings.ToLower(path.Join(option.Dir, name+".go"))
+		file := strings.ToLower(path.Join(dir, name+".go"))
 		projectFile, err := os.Create(file)
 		if err != nil {
 			return err
@@ -54,6 +59,28 @@ func generateFile(tmpl *template.Template, data any) ([]byte, error) {
 		return nil, err
 	}
 	return formatted, nil
+}
+
+func generateGoMod(option *Option) error {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if err := os.Chdir(option.Dir); err != nil {
+		return err
+	}
+	fmt.Printf("   generating %q\n", "go.mod")
+	cmd := exec.Command("go", "mod", "init", option.Name)
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	fmt.Printf("   generating %q\n", "go.sum")
+	cmd = exec.Command("go", "mod", "tidy")
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	os.Chdir(currentDir)
+	return nil
 }
 
 func templateInit(name string, text string) *template.Template {

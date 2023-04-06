@@ -21,7 +21,10 @@ type Option struct {
 	Templates []*template.Template
 	Dir       string
 	Package   string
-	IsApp     bool
+
+	IsApp            bool
+	KeepOriginalName bool
+	SkipGoFormat     bool
 }
 
 func (l *listOptions) String() string {

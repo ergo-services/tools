@@ -22,12 +22,15 @@ func generate(option *Option) error {
 		}
 		// template has format name.tpl or name_xxx.tpl
 		// we need to compose file name like - <i.name>.go or <i.name>_<xxx>.go
-		name := option.Name
-		if _, xxx, found := strings.Cut(t.Name(), "_"); found {
-			xxx, _ := strings.CutSuffix(xxx, ".tpl")
-			name = name + "_" + xxx
+		file := path.Join(dir, option.Name)
+		if option.KeepOriginalName == false {
+			name := option.Name
+			if _, xxx, found := strings.Cut(t.Name(), "_"); found {
+				xxx, _ := strings.CutSuffix(xxx, ".tpl")
+				name = name + "_" + xxx
+			}
+			file = strings.ToLower(path.Join(dir, name+".go"))
 		}
-		file := strings.ToLower(path.Join(dir, name+".go"))
 		projectFile, err := os.Create(file)
 		if err != nil {
 			return err
@@ -35,7 +38,7 @@ func generate(option *Option) error {
 		defer projectFile.Close()
 
 		fmt.Printf("   generating %q\n", file)
-		buf, err := generateFile(t, option)
+		buf, err := generateFile(t, option, option.SkipGoFormat)
 		if err != nil {
 			return err
 		}
@@ -45,13 +48,17 @@ func generate(option *Option) error {
 	return nil
 }
 
-func generateFile(tmpl *template.Template, data any) ([]byte, error) {
+func generateFile(tmpl *template.Template, data any, skipGoFormat bool) ([]byte, error) {
 	if tmpl == nil {
 		panic("template is not initialized")
 	}
 	buf := new(bytes.Buffer)
 	if err := tmpl.Execute(buf, data); err != nil {
 		return nil, err
+	}
+
+	if skipGoFormat {
+		return buf.Bytes(), nil
 	}
 
 	formatted, err := format.Source(buf.Bytes())
@@ -69,12 +76,12 @@ func generateGoMod(option *Option) error {
 	if err := os.Chdir(option.Dir); err != nil {
 		return err
 	}
-	fmt.Printf("   generating %q\n", "go.mod")
+	fmt.Printf("   generating %q\n", path.Join(option.Dir, "go.mod"))
 	cmd := exec.Command("go", "mod", "init", option.Name)
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	fmt.Printf("   generating %q\n", "go.sum")
+	fmt.Printf("   generating %q\n", path.Join(option.Dir, "go.sum"))
 	cmd = exec.Command("go", "mod", "tidy")
 	if err := cmd.Run(); err != nil {
 		return err

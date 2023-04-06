@@ -106,7 +106,6 @@ func main() {
 	}
 
 	// node options - messages for networking
-	msgs := []*Option{}
 	optionType := Option{
 		Name:      "types",
 		Dir:       dir,
@@ -115,10 +114,34 @@ func main() {
 		Params:    make(map[string]any),
 		Children:  OptionWithMsg,
 	}
-	for _, msg := range OptionWithMsg {
-		msgs = append(msgs, msg)
-	}
 	if err := generate(&optionType); err != nil {
+		fmt.Printf("error: %s\n", err)
+		return
+	}
+
+	// README.md
+	optionReadme := Option{
+		Name:             "README.md",
+		Dir:              dir,
+		Templates:        readmeTemplates,
+		Params:           make(map[string]any),
+		KeepOriginalName: true,
+		SkipGoFormat:     true,
+	}
+	optionReadme.Params["applications"] = OptionWithApp
+	optionReadme.Params["processes"] = optionNode.Children
+	optionReadme.Params["project"] = optionNode.Name
+	optionReadme.Params["types"] = OptionWithMsg
+	optionReadme.Params["optionCloud"] = "false"
+	if len(OptionWithCloud) > 0 {
+		optionReadme.Params["optionCloud"] = "true"
+	}
+	optionReadme.Params["optionTypes"] = "false"
+	if len(OptionWithMsg) > 0 {
+		optionReadme.Params["optionTypes"] = "true"
+	}
+
+	if err := generate(&optionReadme); err != nil {
 		fmt.Printf("error: %s\n", err)
 		return
 	}

@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	enableTLS = false
+	enableWebTLS = false
 )
 
 func create{{ .Name }}() gen.WebBehavior {
@@ -34,7 +34,7 @@ func (w *{{ .Name }}) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.We
 	options.Host = "localhost"
 	proto := "http"
 
-	if enableTLS {
+	if enableWebTLS {
 		// generate self-signed certificate
 		cert, err := lib.GenerateSelfSignedCert("gen.Web - {{ .Name }}")
 		if err != nil {

@@ -91,19 +91,19 @@ func (l *listOptions) WithTemplates(t []*template.Template) *listOptions {
 	return l
 }
 
+func setAppDirChildren(parent *Option) {
+	for _, child := range parent.Children {
+		child.Dir = parent.Dir
+		child.Package = parent.Package
+		setAppDirChildren(child)
+	}
+}
 func (l *listOptions) WithAppDir(dir string) *listOptions {
 	for _, option := range *l {
 		option.Dir = path.Join(option.Dir, dir, option.LoName)
 		option.Package = option.LoName
 		option.IsApp = true
-		for _, child := range option.Children {
-			child.Dir = option.Dir
-			child.Package = option.Package
-			for _, c := range child.Children {
-				c.Dir = option.Dir
-				c.Package = option.Package
-			}
-		}
+		setAppDirChildren(option)
 	}
 	return l
 

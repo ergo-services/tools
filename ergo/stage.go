@@ -6,17 +6,12 @@ import (
 )
 
 const (
-	stageTemplateActorFile      = "stage.tpl"
-	stageTemplateDispatcherFile = "stage_dispatcher.tpl"
+	stageTemplateActorFile = "stage.tpl"
 )
 
 //go:embed stage.tpl
 var stageTemplateActorText string
 
-//go:embed stage_dispatcher.tpl
-var stageTemplateDispatcherText string
-
 var stageTemplates = []*template.Template{
 	templateInit(stageTemplateActorFile, stageTemplateActorText),
-	templateInit(stageTemplateDispatcherFile, stageTemplateDispatcherText),
 }

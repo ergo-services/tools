@@ -16,7 +16,7 @@ Applications
     {{- range .Children }}
      - `{{ .Name }}{}` {{ .Dir }}/{{ .LoName -}}.go
        {{- if .Children }}
-	   - ... Has more items. See source code
+	   - ... has more items. See source code
 	   {{- end }}
     {{- end }}
   {{- end }}

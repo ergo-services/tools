@@ -1,7 +1,10 @@
 package {{ .Package }}
 
 import (
+	"fmt"
+
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/etf"
 )
 
 func create{{ .Name }}Handler() gen.UDPHandlerBehavior {
@@ -28,7 +31,7 @@ func (uh *{{ .Name }}Handler) HandlePacket(process *gen.UDPHandlerProcess, data 
 //
 
 // HandleTimeout invokes on socket reading timeout, which is default 3 seconds
-func (uh *{{ .Name }}Handler) HandleTimeout(process *UDPHandlerProcess) {
+func (uh *{{ .Name }}Handler) HandleTimeout(process *gen.UDPHandlerProcess) {
 
 }
 

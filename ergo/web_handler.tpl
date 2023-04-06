@@ -2,6 +2,7 @@ package {{ .Package }}
 
 import (
 	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/etf"
 )
 
 func create{{ .Name }}Handler() gen.WebHandlerBehavior {

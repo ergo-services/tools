@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	enableTLS = false
+	enableTCPTLS = false
 )
 
 func create{{ .Name }}() gen.TCPBehavior {
@@ -34,7 +34,7 @@ func (ts *{{ .Name }}) InitTCP(process *gen.TCPProcess, args ...etf.Term) (gen.T
 		Handler: create{{ .Name }}Handler(),
 	}
 
-	if enableTLS {
+	if enableTCPTLS {
 		cert, _ := lib.GenerateSelfSignedCert("localhost")
 		fmt.Println("TLS enabled. Generated self signed certificate. You may check it with command below:")
 		fmt.Printf("   $ openssl s_client -connect %s:%d\n", options.Host, options.Port)

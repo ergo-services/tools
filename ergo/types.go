@@ -31,8 +31,8 @@ func (l *listOptions) String() string {
 func (l *listOptions) Set(value string) error {
 	var op Option
 
-	value, hasOpts := strings.CutSuffix(value, "]")
-	if hasOpts {
+	value, hasParams := strings.CutSuffix(value, "]")
+	if hasParams {
 		s := strings.Split(value, "[")
 		if len(s) != 2 {
 			return fmt.Errorf("incorrect argument")
@@ -67,10 +67,12 @@ func (l *listOptions) Set(value string) error {
 	op.Name = value
 	op.LoName = strings.ToLower(value)
 	op.Package = "main"
+
 	if _, exist := optionsDict[op.Name]; exist {
 		return fmt.Errorf("duplicate name %q", op.Name)
 	}
 	optionsDict[op.Name] = &op
+
 	if op.Parent != nil {
 		op.Parent.Children = append(op.Parent.Children, &op)
 	}

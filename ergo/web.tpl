@@ -12,9 +12,9 @@ import (
 
 var (
 	enableTLS = false
-}
+)
 
-func create{{ .Name }}() gen.ProcessBehavior {
+func create{{ .Name }}() gen.WebBehavior {
 	return &{{ .Name }}{}
 }
 
@@ -22,6 +22,11 @@ type {{ .Name }} struct {
 	gen.Web
 }
 
+//
+// Mandatory callbacks
+//
+
+// InitWeb invoked on starting Web server
 func (w *{{ .Name }}) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebOptions, error) {
 	var options gen.WebOptions
 
@@ -53,4 +58,23 @@ func (w *{{ .Name }}) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.We
 
 	fmt.Printf("Start Web server on %s://%s:%d/\n", proto, options.Host, options.Port)
 	return options, nil
+}
+
+//
+// Optional gen.Server's callbacks
+//
+
+// HandleWebCall this callback is invoked on ServerProcess.Call(...).
+func (w *{{ .Name }}) HandleWebCall(process *gen.WebProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
+	return nil, gen.ServerStatusOK
+}
+
+// HandleWebCast this callback is invoked on ServerProcess.Cast(...).
+func (w *{{ .Name }}) HandleWebCast(process *gen.WebProcess, message etf.Term) gen.ServerStatus {
+	return gen.ServerStatusOK
+}
+
+// HandleWebInfo this callback is invoked on Process.Send(...).
+func (w *{{ .Name }}) HandleWebInfo(process *gen.WebProcess, message etf.Term) gen.ServerStatus {
+	return gen.ServerStatusOK
 }

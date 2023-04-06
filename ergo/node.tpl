@@ -83,7 +83,7 @@ func main() {
 
 	{{ range .Children}}
 	// starting process {{ .Name }}
-	process, err = {{$.Name}}Node.Spawn("{{ .LoName }}", gen.ProcessOptions{}, &{{ .Name }}{})
+	process, err = {{$.Name}}Node.Spawn("{{ .LoName }}", gen.ProcessOptions{}, create{{ .Name }}())
 	if err != nil {
 		panic(err)
 	}

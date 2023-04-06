@@ -63,6 +63,9 @@ func generateFile(tmpl *template.Template, data any, skipGoFormat bool) ([]byte,
 
 	formatted, err := format.Source(buf.Bytes())
 	if err != nil {
+		fmt.Println("---")
+		fmt.Println(buf.String())
+		fmt.Println("---")
 		return nil, err
 	}
 	return formatted, nil

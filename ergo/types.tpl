@@ -5,14 +5,17 @@ import (
 	"github.com/ergo-services/ergo/lib"
 )
 
-{{ range .Children }} type {{ .Name }} struct{
+{{ range .Children -}}
+type {{ .Name }} struct{
 	// Add your fields
-} {{ end }}
+}
+{{ end -}}
 
 func RegisterTypes() error {
 	types := []interface{}{
-{{ range .Children }} {{ .Name }}{},
-{{ end }}
+	{{ range .Children -}}
+		{{ .Name }}{},
+	{{ end -}}
 	}
 
 	opts := etf.RegisterTypeOptions{Strict: true}

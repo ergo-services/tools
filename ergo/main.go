@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 )
@@ -140,6 +141,7 @@ func main() {
 	if len(OptionWithMsg) > 0 {
 		optionReadme.Params["optionTypes"] = "true"
 	}
+	optionReadme.Params["args"] = strings.Join(os.Args, " ")
 
 	if err := generate(&optionReadme); err != nil {
 		fmt.Printf("error: %s\n", err)

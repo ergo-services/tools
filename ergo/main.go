@@ -65,6 +65,9 @@ func main() {
 		OptionWithPool.WithTemplates(poolTemplates).WithDir(dir),
 		OptionWithRaft.WithTemplates(raftTemplates).WithDir(dir),
 		OptionWithSup.WithTemplates(supTemplates).WithDir(dir),
+
+		// must be here due to traversing over the children
+		// and updating the file location
 		OptionWithApp.WithTemplates(appTemplates).WithDir(dir).WithAppDir("apps"),
 	}
 

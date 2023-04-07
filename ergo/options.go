@@ -34,6 +34,9 @@ func (l *listOptions) String() string {
 func (l *listOptions) Set(value string) error {
 	var op Option
 
+	// pattern...
+	// Parent:Item[Param1:value,Param2:value...]
+
 	value, hasParams := strings.CutSuffix(value, "]")
 	if hasParams {
 		s := strings.Split(value, "[")

@@ -22,7 +22,7 @@ func (us *{{ .Name }}) InitUDP(process *gen.UDPProcess, args ...etf.Term) (gen.U
 	return gen.UDPOptions{
 		Host:    "localhost",
 		Port:    uint16(12345),
-		Handler: create{{ .Name }}Handler, // udp_handler.go
+		Handler: create{{ .Name }}Handler(), // udp_handler.go
 	}, nil
 }
 

@@ -1,8 +1,6 @@
 package {{ .Package }}
 
 import (
-	"fmt"
-
 	"github.com/ergo-services/ergo/etf"
 	"github.com/ergo-services/ergo/gen"
 )
@@ -16,7 +14,7 @@ type {{ .Name }} struct {
 }
 
 // InitStage
-func (s *{{ .Name }}) InitStage(process *gen.StageProcess, args ...etf.Term) (StageOptions, error) {
+func (s *{{ .Name }}) InitStage(process *gen.StageProcess, args ...etf.Term) (gen.StageOptions, error) {
 	//
 	// You should specify Dispatcher if this process is intended to be used as a producer. There are
 	// 3 different types of dispatchers:

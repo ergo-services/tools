@@ -1,0 +1,115 @@
+package {{.Package}}
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"flag"
+	"fmt"
+	{{ if index .Params "types" }}
+	"{{ index .Params "module" }}"
+	{{ end }}
+	{{- range index .Params "applications" }}
+	"{{- index $.Params "module" }}/apps/{{ .LoName }}"
+	{{- end }}
+
+	"github.com/ergo-services/ergo"
+	"github.com/ergo-services/ergo/gen"
+	"github.com/ergo-services/ergo/node"
+	{{ if index .Params "ssl" }}
+	"crypto/tls"
+	"github.com/ergo-services/ergo/lib"
+	{{ end }}
+
+)
+
+var (
+	OptionNodeName   string
+	OptionNodeCookie string
+	{{ if index .Params "cloud" }}
+	OptionCloudClusterName   string
+	OptionCloudClusterCookie string
+	{{ end }}
+)
+
+func init() {
+	// generate random value for cookie
+	buff := make([]byte, 12)
+	rand.Read(buff)
+	randomCookie := hex.EncodeToString(buff)
+
+	{{ if index .Params "host" -}}
+	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@{{ index .Params "host" }}", "node name")
+	{{ else -}}
+	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@localhost", "node name")
+	{{ end -}}
+	flag.StringVar(&OptionNodeCookie, "cookie", randomCookie, "a secret cookie for interaction within the cluster")
+	{{ if index .Params "cloud" }}
+	// cloud options
+	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{ index .Params "cloud" }}", "cloud cluster name")
+	flag.StringVar(&OptionCloudClusterCookie, "cloud-cookie", "", "cloud cluster cookie")
+	{{ end }}
+}
+
+func main() {
+	var options node.Options
+	{{ if .Children -}}
+	var process gen.Process
+	{{ end }}
+
+	flag.Parse()
+
+	{{ if index .Params "applications" }}
+	// Create applications that must be started
+	apps := []gen.ApplicationBehavior{ {{ range index .Params "applications" }}
+	{{ .LoName }}.Create{{ .Name }}(), {{ end }}
+	}
+	options.Applications = apps
+	{{ end }}
+
+	{{ if index .Params "cloud" }}
+	// Enable cloud feature.
+	options.Cloud.Enable = true
+
+	// Set your cluster name and cookie to get access to the cloud
+	options.Cloud.Cluster = OptionCloudClusterName
+	options.Cloud.Cookie = OptionCloudClusterCookie
+
+	// We should enable accepting incoming connection requests
+	// from the nodes in your cloud cluster.
+	options.Proxy.Accept = true
+	{{ end -}}
+
+	{{ if index .Params "ssl" }}
+	// Enable SSL with self-signed certificate
+	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} Service")
+	certUpdater := lib.CreateCertUpdater(cert)
+	tlsConfig := &tls.Config{
+		GetCertificate: certUpdater.GetCertificateFunc(),
+	}
+	options.TLS = tlsConfig
+	{{ end }}
+
+	// Starting node
+	{{.Name}}Node, err := ergo.StartNode(OptionNodeName, OptionNodeCookie, options)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("node %q is started\n", {{.Name}}Node.Name())
+
+	{{ if index .Params "types" }}
+	if err := {{ index $.Params "module-name" }}.RegisterTypes(); err != nil {
+		panic(err)
+	}
+	{{ end }}
+
+	{{ range .Children}}
+	// starting process {{ .Name }}
+	process, err = {{$.Name}}Node.Spawn("{{ .LoName }}", gen.ProcessOptions{}, create{{ .Name }}())
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("  process %q with PID %s is started\n", process.Name(), process.Self())
+	{{ end }}
+
+	{{.Name}}Node.Wait()
+}

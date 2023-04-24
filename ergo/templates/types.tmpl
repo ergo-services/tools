@@ -1,0 +1,31 @@
+package {{ .Package }}
+
+import (
+	"github.com/ergo-services/ergo/etf"
+	"github.com/ergo-services/ergo/lib"
+)
+
+{{ range .Children -}}
+type {{ .Name }} struct{
+	// Add your fields
+}
+{{ end -}}
+
+func RegisterTypes() error {
+	types := []struct {
+		reg  any
+		opts etf.RegisterTypeOptions
+	}{
+	{{ range .Children -}}
+		{reg: {{ .Name }}{}, opts: etf.RegisterTypeOptions{ {{ if index .Params "strict" }} Strict: true {{ end }} }},
+	{{ end -}}
+	}
+
+	for _, t := range types {
+		_, err := etf.RegisterType(t.reg, t.opts)
+		if err != nil && err != lib.ErrTaken {
+			return err
+		}
+	}
+	return nil
+}

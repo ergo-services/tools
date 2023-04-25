@@ -11,60 +11,61 @@ Please follow this pattern, keeping the order of declaration according to the su
 #### Options
   - `-init` Node name
 
-    params:
+    _params:_
     - `ssl:yes` enables SSL for the node
     - `module` defines module name
 
-     example:
+    _example:_
        `ergo -init "myService{ssl:yes,module:github.com/user/example}"`
   - `-path` defines location for the generated code
   - `-with-actor` add actor (based on `gen.Server`)
   - `-with-app` add application (based on `gen.Application`)
   - `-with-sup` add supervisor (based on `gen.Supervisor`)
 
-    params:
-    - `type` supervisor strategy type
-
-	 available values:
-	   `ofo` one for one - If a child process terminates, only that process is restarted (default)
-	   `rfo` rest for one - If a child process terminates, the rest of the child processes are terminated, then the terminated child process and the rest of the child processes are restarted
-	   `ofa` one for all - If a child process terminates, all other child processes are terminated, and then all child processes, including the terminated one, are restarted
-	   `sofo` simple one for one - is a simplified `ofo` supervisor, where all child processes are dynamically added instances of the same process
-    - `restart` restart strategy
-
-	 available values:
-	   `trans` transient - child process is restarted only if it terminates abnormally (default)
-	   `perm` permanent - child process is always restarted
-	   `temp` temporary - child process is never restarted
-
+    _params:_
+    - `type` supervisor strategy type. available values:
+      
+        * `ofo` **(default)** one for one - If a child process terminates, only that process is restarted 
+        * `rfo` rest for one - If a child process terminates, the rest of the child processes are terminated, then the terminated child process and the rest of the child processes are restarted
+        * `ofa` one for all - If a child process terminates, all other child processes are terminated, and then all child processes, including the terminated one, are restarted
+        * `sofo` simple one for one - is a simplified `ofo` supervisor, where all child processes are dynamically added instances of the same process
+        	
+    - `restart` restart strategy. available values:
+	 
+        * `trans` **(default)** transient - child process is restarted only if it terminates abnormally
+        * `perm` permanent - child process is always restarted
+        * `temp` temporary - child process is never restarted
+       
+    _example:_
+       `ergo -init myService -with-sup{type:rfa,restart:perm}"`
   - `-with-cloud` enables Cloud feature for the node
   - `-with-msg` add message for the networking
 
-    params:
+    _params:_
 	- `strict:yes` enable strict mode for unmarshaling message
   - `-with-pool` add pool of workers (based on `gen.Pool`)
 
-    params:
+    _params:_
 	- `workers` number of starting workers
   - `-with-raft` add raft (based on `gen.Raft`)
   - `-with-saga` add saga (based on `gen.Saga`)
   - `-with-stage` add stage (based on `gen.Stage`)
   - `-with-tcp` add TCP server (based on `gen.TCP`)
 
-    params:
+    _params:_
     - `ssl:yes` enables SSL for this TCP server
     - `host` defines hostname
     - `port` defines port number
 	- `handlers` number of starting handlers
   - `-with-udp` add UDP server (based on `gen.UDP`)
 
-    params:
+    _params:_
     - `host` defines hostname
     - `port` defines port number
 	- `handlers` number of starting handlers
   - `-with-web` add Web server (based on `gen.Web`)
 
-    params:
+    _params:_
     - `ssl:yes` enables SSL for this Web server
     - `host` defines hostname
     - `port` defines port number

@@ -25,10 +25,19 @@ func (sup *{{ .Name }}) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 		{{ end -}}
 		},
 		Strategy: gen.SupervisorStrategy{
-			Type:      gen.SupervisorStrategyOneForAll,
+			{{ $type := index .Params "type" }}
+			{{- if (eq $type "ofa") }} Type:      gen.SupervisorStrategyOneForAll,
+			{{- else if (eq $type "rfo") }} Type:      gen.SupervisorStrategyRestForOne,
+			{{- else if (eq $type "sofo") }} Type:      gen.SupervisorStrategySimpleOneForOne,
+			{{- else }} Type:      gen.SupervisorStrategyOneForOne,
+			{{- end }}
 			Intensity: 2,
 			Period:    5,
-			Restart:   gen.SupervisorStrategyRestartTemporary,
+			{{ $restart := index .Params "restart" }}
+			{{- if (eq $restart "perm") }} Type:      gen.SupervisorStrategyRestartPermanent,
+			{{- else if (eq $restart "temp") }} Type:      gen.SupervisorStrategyRestartTemporary,
+			{{- else }} Type:      gen.SupervisorStrategyRestartTransient,
+			{{- end }}
 		},
 	}
 	return spec, nil

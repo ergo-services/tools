@@ -21,6 +21,22 @@ Please follow this pattern, keeping the order of declaration according to the su
   - `-with-actor` add actor (based on `gen.Server`)
   - `-with-app` add application (based on `gen.Application`)
   - `-with-sup` add supervisor (based on `gen.Supervisor`)
+
+    params:
+    - `type` supervisor strategy type
+
+	 available values:
+	   `ofo` one for one - If a child process terminates, only that process is restarted (default)
+	   `rfo` rest for one - If a child process terminates, the rest of the child processes are terminated, then the terminated child process and the rest of the child processes are restarted
+	   `ofa` one for all - If a child process terminates, all other child processes are terminated, and then all child processes, including the terminated one, are restarted
+	   `sofo` simple one for one - is a simplified `ofo` supervisor, where all child processes are dynamically added instances of the same process
+    - `restart` restart strategy
+
+	 available values:
+	   `trans` transient - child process is restarted only if it terminates abnormally (default)
+	   `perm` permanent - child process is always restarted
+	   `temp` temporary - child process is never restarted
+
   - `-with-cloud` enables Cloud feature for the node
   - `-with-msg` add message for the networking
 

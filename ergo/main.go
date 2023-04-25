@@ -34,7 +34,7 @@ func init() {
 	flag.StringVar(&OptionPath, "path", ".", "Set location")
 
 	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized.")
-	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor")
+	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, restart")
 
 	flag.Var(&OptionWithActor, "with-actor", "Add actor")
 	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, ssl")

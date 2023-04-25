@@ -37,7 +37,7 @@ Please follow this pattern, keeping the order of declaration according to the su
         * `temp` temporary - child process is never restarted
        
     _example:_
-       `ergo -init myService -with-sup{type:rfa,restart:perm}"`
+       `ergo -init myService -with-sup{type:rfo,restart:perm}"`
   - `-with-cloud` enables Cloud feature for the node
   - `-with-msg` add message for the networking
 

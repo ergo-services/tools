@@ -17,7 +17,7 @@ type {{ .Name }} struct {
 
 // Init invoked on a start this process.
 func (s *{{ .Name }}) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	fmt.Printf("Init process: %s with args %v \n", process.Self(), args)
+	fmt.Printf("Init process: %s with name %q and args %v \n", process.Self(), process.Name(), args)
 	return nil
 }
 

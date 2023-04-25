@@ -34,9 +34,9 @@ func (sup *{{ .Name }}) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 			Intensity: 2, // How big bursts of restarts you want to tolerate.
 			Period:    5, // In seconds.
 			{{ $restart := index .Params "restart" }}
-			{{- if (eq $restart "perm") }} Type:      gen.SupervisorStrategyRestartPermanent,
-			{{- else if (eq $restart "temp") }} Type:      gen.SupervisorStrategyRestartTemporary,
-			{{- else }} Type:      gen.SupervisorStrategyRestartTransient,
+			{{- if (eq $restart "perm") }} Restart:      gen.SupervisorStrategyRestartPermanent,
+			{{- else if (eq $restart "temp") }} Restart:      gen.SupervisorStrategyRestartTemporary,
+			{{- else }} Restart:      gen.SupervisorStrategyRestartTransient,
 			{{- end }}
 		},
 	}

@@ -94,7 +94,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("node %q is started\n", {{.Name}}Node.Name())
+	fmt.Printf("Node %q is started\n", {{.Name}}Node.Name())
 
 	{{ if index .Params "types" }}
 	if err := {{ index $.Params "module-name" }}.RegisterTypes(); err != nil {

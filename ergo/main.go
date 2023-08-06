@@ -20,13 +20,12 @@ var (
 	OptionWithWeb   listOptions
 	OptionWithTCP   listOptions
 	OptionWithUDP   listOptions
-	OptionWithSaga  listOptions
-	OptionWithStage listOptions
 	OptionWithPool  listOptions
-	OptionWithRaft  listOptions
+	OptionWithSaga  listOptions
 
-	OptionWithMsg   listOptions
-	OptionWithCloud string
+	OptionWithMsg      listOptions
+	OptionWithCloud    string
+	OptionWithObserver listOptions
 )
 
 func init() {
@@ -40,12 +39,10 @@ func init() {
 	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, ssl")
 	flag.Var(&OptionWithTCP, "with-tcp", "Add TCP-server. Available params: host, port, ssl")
 	flag.Var(&OptionWithUDP, "with-udp", "Add UDP-server. Available params: host, port")
-	flag.Var(&OptionWithSaga, "with-saga", "Add Saga")
-	flag.Var(&OptionWithStage, "with-stage", "Add Stage")
 	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers")
-	flag.Var(&OptionWithRaft, "with-raft", "Add Raft")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
+	flag.StringVar(&OptionWithObserver, "with-observer", "", "Add Observer application")
 	flag.StringVar(&OptionWithCloud, "with-cloud", "", "Enable cloud with given cluster name")
 }
 
@@ -72,10 +69,7 @@ func main() {
 		OptionWithWeb.WithTemplates(templates.Web).WithDir(dir),
 		OptionWithTCP.WithTemplates(templates.TCP).WithDir(dir),
 		OptionWithUDP.WithTemplates(templates.UDP).WithDir(dir),
-		OptionWithSaga.WithTemplates(templates.Saga).WithDir(dir),
-		OptionWithStage.WithTemplates(templates.Stage).WithDir(dir),
 		OptionWithPool.WithTemplates(templates.Pool).WithDir(dir),
-		OptionWithRaft.WithTemplates(templates.Raft).WithDir(dir),
 		OptionWithSup.WithTemplates(templates.Sup).WithDir(dir),
 
 		// must be here due to traversing over the children
@@ -104,6 +98,10 @@ func main() {
 	// node options - cloud
 	if OptionWithCloud != "" {
 		optionNode.Params["cloud"] = OptionWithCloud
+	}
+	// node options - observer
+	if OptionWithCloud != "" {
+		optionNode.Params["observer"] = OptionWithObserver
 	}
 	// register types (messages for networking)
 	if len(OptionWithMsg) > 0 {

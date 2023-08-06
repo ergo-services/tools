@@ -1,23 +1,22 @@
 package {{ .Package }}
 
 import (
-	"fmt"
 
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
 )
 
-func create{{ .Name }}() gen.ServerBehavior {
+func factory{{ .Name }}() gen.ProcessBehavior {
 	return &{{ .Name }}{}
 }
 
 type {{ .Name }} struct {
-	gen.Server
+	act.Actor
 }
 
 // Init invoked on a start this process.
-func (s *{{ .Name }}) Init(process *gen.ServerProcess, args ...etf.Term) error {
-	fmt.Printf("Init process: %s with name %q and args %v \n", process.Self(), process.Name(), args)
+func (a *{{ .Name }}) Init(args ...any) error {
+	a.Log().Info("Init process: %s with name %q and args %v \n", process.Self(), process.Name(), args)
 	return nil
 }
 
@@ -25,33 +24,25 @@ func (s *{{ .Name }}) Init(process *gen.ServerProcess, args ...etf.Term) error {
 // Methods below are optional, so you can remove those that aren't be used
 //
 
-// HandleInfo invoked if this process received message sent with Process.Send(...).
-func (s *{{ .Name }}) HandleInfo(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	fmt.Printf("HandleInfo: %#v \n", message)
-	return gen.ServerStatusOK
+// HandleMessage invoked if Actor received a message sent with gen.Process.Send(...).
+// Non-nil value of the returning error will cause termination of this process.
+// To stop this process normally, return gen.TerminateReasonNormal
+// or any other for abnormal termination.
+func (a *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
+	a.Log().Info("got message from %s: %s", from , message)
+	return any
 }
 
-// HandleCast invoked if this process received message sent with ServerProcess.Cast(...).
-// Return ServerStatusStop to stop server with "normal" reason. Use ServerStatus(error)
-// for the custom reason
-func (s *{{ .Name }}) HandleCast(process *gen.ServerProcess, message etf.Term) gen.ServerStatus {
-	fmt.Printf("HandleCast: %#v \n", message)
-	return gen.ServerStatusOK
+
+// HandleCall invoked if Actor got a synchronous request made with gen.Process.Call(...).
+// Return nil as a result to handle this request asynchronously and
+// to provide the result later using the gen.Process.SendResponse(...) method.
+func (a *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	a.Log().Info("got request from %s: %s", from , request)
+	return true, nil
 }
 
-// HandleCall invoked if this process got sync request using ServerProcess.Call(...)
-func (s *{{ .Name }}) HandleCall(process *gen.ServerProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	fmt.Printf("HandleCall: %#v \n", message)
-	return nil, gen.ServerStatusOK
-}
-
-// HandleDirect invoked on a direct request made with Process.Direct(...)
-func (s *{{ .Name }}) HandleDirect(process *gen.ServerProcess, ref etf.Ref, message interface{}) (interface{}, gen.DirectStatus) {
-	fmt.Printf("HandleDirect: %#v \n", message)
-	return nil, nil
-}
-
-// Terminate invoked on a termination process. ServerProcess.State is not locked during this callback.
-func (s *{{ .Name }}) Terminate(process *gen.ServerProcess, reason string) {
-	fmt.Printf("Terminated: %s with reason %s", process.Self(), reason)
+// Terminate invoked on a termination process
+func (a *{{ .Name }}) Terminate(reason error) {
+	a.Log().Info("terminated with reason: %s", reason)
 }

@@ -24,7 +24,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
 - ### observer
 
-  This tool allows you to inspect your node, running processes and theirs state:
+  This tool allows you to inspect your node, running processes and, their state:
 
   `go install ergo.services/tools/observer@latest`
 

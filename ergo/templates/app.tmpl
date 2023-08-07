@@ -1,36 +1,29 @@
 package {{ .Package }}
 
 import (
-	"fmt"
-
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/gen"
 )
 
 func Create{{ .Name }}() gen.ApplicationBehavior {
 	return &{{ .Name }}{}
 }
 
-type {{ .Name }} struct {
-	gen.Application
-}
+type {{ .Name }} struct {}
 
-func (app *{{ .Name }}) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
+func (app *{{ .Name }}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name: "{{ .LoName }}",
 		Description: "description of this application",
-		Version:     "v.1.0",
-		Children: []gen.ApplicationChildSpec{
-		{{ range .Children -}}
-			gen.ApplicationChildSpec{
+		Group: []gen.ApplicationMemberSpec{
+		{{ range .Group-}}
+			gen.ApplicationMemberSpec{
 				Name:  "{{ .LoName }}",
-				Child: create{{ .Name }}(),
+				Factory: factory{{ .Name }}(),
 			},
 		{{ end -}}
 		},
 	}, nil
 }
 
-func (app *{{ .Name }}) Start(process gen.Process, args ...etf.Term) {
-	fmt.Printf("Application {{ .Name }} started with Pid %s\n", process.Self())
-}
+func (app *{{ .Name }}) Start(mode gen.ApplicationMode) {}
+func (app *{{ .Name }}) Terminate(reason error)         {}

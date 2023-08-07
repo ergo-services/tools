@@ -24,18 +24,18 @@ Please follow this pattern, keeping the order of declaration according to the su
 
     _params:_
     - `type` supervisor strategy type. available values:
-      
-        * `ofo` **(default)** one for one - If a child process terminates, only that process is restarted 
+
+        * `ofo` **(default)** one for one - If a child process terminates, only that process is restarted
         * `rfo` rest for one - If a child process terminates, the rest of the child processes are terminated, then the terminated child process and the rest of the child processes are restarted
         * `ofa` one for all - If a child process terminates, all other child processes are terminated, and then all child processes, including the terminated one, are restarted
         * `sofo` simple one for one - is a simplified `ofo` supervisor, where all child processes are dynamically added instances of the same process
-        	
+
     - `restart` restart strategy. available values:
-	 
+
         * `trans` **(default)** transient - child process is restarted only if it terminates abnormally
         * `perm` permanent - child process is always restarted
         * `temp` temporary - child process is never restarted
-       
+
     _example:_
        `ergo -init myService -with-sup{type:rfo,restart:perm}"`
   - `-with-cloud` enables Cloud feature for the node

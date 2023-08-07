@@ -21,7 +21,6 @@ var (
 	OptionWithTCP   listOptions
 	OptionWithUDP   listOptions
 	OptionWithPool  listOptions
-	OptionWithSaga  listOptions
 
 	OptionWithMsg      listOptions
 	OptionWithCloud    string

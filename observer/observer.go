@@ -10,9 +10,11 @@ import (
 
 func main() {
 	flag.Parse()
-	opt := gen.NodeOptions{}
-	opt.Log.Level = gen.LogLevelDebug
-	opt.Applications = append(opt.Applications, observer.CreateApp(observer.Options{}))
+	opt := gen.NodeOptions{
+		Applications: []gen.ApplicationBehavior{
+			observer.CreateApp(observer.Options{}),
+		},
+	}
 	node, err := ergo.StartNode("observer@localhost", opt)
 	if err != nil {
 		panic(err)

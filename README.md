@@ -1,6 +1,5 @@
 <h1><a href="https://ergo.services"><img src=".github/logo.green.svg" alt="Ergo tools" width="298" height="49"></a></h1>
 
-<!--[![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services) -->
 [![Gitbook Documentation](https://img.shields.io/badge/GitBook-Documentation-f37f40?style=plastic&logo=gitbook&logoColor=white&style=flat)](https://docs.ergo.services)
 [![GoDoc](https://pkg.go.dev/badge/ergo-services/ergo)](https://pkg.go.dev/ergo.services/ergo)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
@@ -20,7 +19,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
    `ParentActor:Actor{param1:value1,param2:value2...}`
 
-  [read more...](ergo/README.md)
+  Doc: https://docs.ergo.services/tools/ergo
 
 - ### observer
 
@@ -28,4 +27,4 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   `go install ergo.services/tools/observer@latest`
 
-  [read more...](observer/README.md)
+  Doc: https://docs.ergo.services/tools/observer

@@ -10,13 +10,13 @@ import (
 	{{ end }}
 )
 
-func create{{ .Name }}() gen.TCPBehavior {
+func factory_{{ .Name }}() gen.ProcessBehavior {
 	return &{{ .Name }}{}
 }
 
 
 type {{ .Name }} struct {
-	gen.TCP
+	act.TCP
 }
 
 //

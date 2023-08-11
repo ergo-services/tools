@@ -20,7 +20,7 @@ func (sup *{{ .Name }}) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
 		{{ range .Children -}}
 			gen.SupervisorChildSpec{
 				Name:  "{{ .LoName }}",
-				Child: create{{ .Name }}(),
+				Child: factory_{{ .Name }},
 			},
 		{{ end -}}
 		},

@@ -6,10 +6,7 @@ import (
 )
 
 func main() {
-	var options node.Options
-	{{ if .Children -}}
-	var pid gen.PID
-	{{ end }}
+	var options gen.NodeOptions
 
 	{{ if index .Params "applications" }}
 	// Create applications that must be started
@@ -18,20 +15,18 @@ func main() {
 	}
 	{{ end }}
 
-	// Starting node
-	node{{.Name}}, err := ergo.StartNode("{{.Name}}", options)
+	// starting node
+	{{.Name}}, err := ergo.StartNode("{{.Name}}", options)
 	if err != nil {
 		panic(err)
 	}
 
 	{{ range .Children }}
 	// starting process {{ .Name }}
-	pid, err = node{{$.Name}}.SpawnRegister("{{ .LoName }}", factory{{ .Name }}, gen.ProcessOptions{})
-	if err != nil {
+	if _, err := {{$.Name}}.SpawnRegister("{{ .LoName }}", factory_{{ .Name }}, gen.ProcessOptions{}); err != nil {
 		panic(err)
 	}
-	node{{.Name}}.Log().Info("'%s' with PID %s is started\n", {{ .Name }}, pid)
 	{{ end }}
 
-	node{{.Name}}.Wait()
+	{{.Name}}.Wait()
 }

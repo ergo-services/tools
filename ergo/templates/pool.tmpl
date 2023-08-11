@@ -15,7 +15,7 @@ func factory{{ .Name }}() gen.ProcessBehavior {
 
 func (p *{{ .Name }}) Init(args ...any) (act.PoolOptions, error) {
 	opts := gen.PoolOptions{
-		Worker:     create{{ .Name }}Worker(),
+		Worker:     factory_{{ .Name }}Worker,
 		NumWorkers: {{ if index .Params "workers" }} {{ index .Params "workers" }} {{ else }} 5 {{ end }},
 	}
 

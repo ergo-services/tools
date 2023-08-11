@@ -5,12 +5,12 @@ import (
 	"github.com/ergo-services/ergo/gen"
 )
 
-func create{{ .Name }}() gen.UDPBehavior {
+func factory_{{ .Name }}() gen.ProcessBehavior {
 	return &{{ .Name }}{}
 }
 
 type {{ .Name }} struct {
-	gen.UDP
+	act.UDP
 }
 
 //

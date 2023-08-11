@@ -15,12 +15,27 @@ func (app *{{ .Name }}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, e
 		Name: "{{ .LoName }}",
 		Description: "description of this application",
 		Group: []gen.ApplicationMemberSpec{
-		{{ range .Group -}}
+		{{ range .Children -}}
 			gen.ApplicationMemberSpec{
 				Name:  "{{ .LoName }}",
-				Factory: factory{{ .Name }}(),
+				Factory: factory_{{ .Name }}(),
 			},
 		{{ end -}}
+		},
+		Strategy: gen.SupervisorStrategy{
+			{{ $type := index .Params "type" }}
+			{{- if (eq $type "ofa") }} Type:      gen.SupervisorStrategyOneForAll,
+			{{- else if (eq $type "rfo") }} Type:      gen.SupervisorStrategyRestForOne,
+			{{- else if (eq $type "sofo") }} Type:      gen.SupervisorStrategySimpleOneForOne,
+			{{- else }} Type:      gen.SupervisorStrategyOneForOne,
+			{{- end }}
+			Intensity: 2, // How big bursts of restarts you want to tolerate.
+			Period:    5, // In seconds.
+			{{ $restart := index .Params "restart" }}
+			{{- if (eq $restart "perm") }} Restart:      gen.SupervisorStrategyRestartPermanent,
+			{{- else if (eq $restart "temp") }} Restart:      gen.SupervisorStrategyRestartTemporary,
+			{{- else }} Restart:      gen.SupervisorStrategyRestartTransient,
+			{{- end }}
 		},
 	}, nil
 }

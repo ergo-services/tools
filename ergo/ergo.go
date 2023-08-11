@@ -23,8 +23,8 @@ var (
 	OptionWithPool  listOptions
 
 	OptionWithMsg      listOptions
-	OptionWithObserver listOptions
-	OptionWithCloud    listOptions
+	OptionWithObserver bool
+	OptionWithCloud    bool
 )
 
 func init() {
@@ -41,8 +41,8 @@ func init() {
 	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
-	flag.Var(&OptionWithObserver, "with-observer", "Add Observer application")
-	flag.Var(&OptionWithCloud, "with-cloud", "Enable cloud with given cluster name")
+	flag.BoolVar(&OptionWithObserver, "with-observer", false, "Add Observer application")
+	flag.BoolVar(&OptionWithCloud, "with-cloud", false, "Enable cloud with given cluster name")
 }
 
 func main() {
@@ -95,11 +95,11 @@ func main() {
 		optionNode.Params["applications"] = OptionWithApp
 	}
 	// node options - cloud
-	if OptionWithCloud != nil {
+	if OptionWithCloud {
 		optionNode.Params["cloud"] = OptionWithCloud
 	}
 	// node options - observer
-	if OptionWithCloud != nil {
+	if OptionWithObserver {
 		optionNode.Params["observer"] = OptionWithObserver
 	}
 	// register types (messages for networking)
@@ -139,10 +139,9 @@ func main() {
 	optionReadme.Params["project"] = optionNode.Name
 	optionReadme.Params["types"] = OptionWithMsg
 
-	optionReadme.Params["optionCloud"] = "false"
-	if len(OptionWithCloud) > 0 {
-		optionReadme.Params["optionCloud"] = "true"
-	}
+	optionReadme.Params["optionObserver"] = OptionWithObserver
+	optionReadme.Params["optionCloud"] = OptionWithCloud
+
 	optionReadme.Params["optionTypes"] = "false"
 	if len(OptionWithMsg) > 0 {
 		optionReadme.Params["optionTypes"] = "true"

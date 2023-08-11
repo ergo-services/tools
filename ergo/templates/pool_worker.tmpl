@@ -1,0 +1,32 @@
+package {{ .Package }}
+
+import (
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+)
+func factory_{{ .Name }}Worker() gen.ProcessBehavior{
+	return &{{ .Name }}Worker{}
+}
+
+type {{ .Name }}Worker struct {
+	act.Actor
+}
+
+func (w *{{ .Name }}Worker) Init(args ...any) error {
+	w.Log().Info("started pool worker: ", w.PID())
+	return nil
+}
+
+func (w *{{ .Name }}Worker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	w.Log().Info("received request: %v", request)
+	return "pong"
+}
+
+func (w *{{ .Name }}Worker) HandleMessage(from gen.PID, message any) error {
+	w.Log().Info("received message: %v", message)
+	return nil
+}
+
+func (w *{{ .Name }}Worker) Terminate(reason error) {
+	w.Log().Info("terminated with reason: %s", reason)
+}

@@ -7,7 +7,7 @@ import (
 
 func main() {
 	var options node.Options
-	{{ if .Processes -}}
+	{{ if .Children -}}
 	var pid gen.PID
 	{{ end }}
 
@@ -19,12 +19,12 @@ func main() {
 	{{ end }}
 
 	// Starting node
-	node{{.Name}}, err := ergo.StartNode(OptionNodeName, options)
+	node{{.Name}}, err := ergo.StartNode("{{.Name}}", options)
 	if err != nil {
 		panic(err)
 	}
 
-	{{ range .Processes}}
+	{{ range .Children }}
 	// starting process {{ .Name }}
 	pid, err = node{{$.Name}}.SpawnRegister("{{ .LoName }}", factory{{ .Name }}, gen.ProcessOptions{})
 	if err != nil {

@@ -15,7 +15,7 @@ func (app *{{ .Name }}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, e
 		Name: "{{ .LoName }}",
 		Description: "description of this application",
 		Group: []gen.ApplicationMemberSpec{
-		{{ range .Group-}}
+		{{ range .Group -}}
 			gen.ApplicationMemberSpec{
 				Name:  "{{ .LoName }}",
 				Factory: factory{{ .Name }}(),

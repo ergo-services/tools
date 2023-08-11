@@ -23,8 +23,8 @@ var (
 	OptionWithPool  listOptions
 
 	OptionWithMsg      listOptions
-	OptionWithCloud    string
 	OptionWithObserver listOptions
+	OptionWithCloud    listOptions
 )
 
 func init() {
@@ -41,8 +41,8 @@ func init() {
 	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
-	flag.StringVar(&OptionWithObserver, "with-observer", "", "Add Observer application")
-	flag.StringVar(&OptionWithCloud, "with-cloud", "", "Enable cloud with given cluster name")
+	flag.Var(&OptionWithObserver, "with-observer", "Add Observer application")
+	flag.Var(&OptionWithCloud, "with-cloud", "Enable cloud with given cluster name")
 }
 
 func main() {
@@ -95,11 +95,11 @@ func main() {
 		optionNode.Params["applications"] = OptionWithApp
 	}
 	// node options - cloud
-	if OptionWithCloud != "" {
+	if OptionWithCloud != nil {
 		optionNode.Params["cloud"] = OptionWithCloud
 	}
 	// node options - observer
-	if OptionWithCloud != "" {
+	if OptionWithCloud != nil {
 		optionNode.Params["observer"] = OptionWithObserver
 	}
 	// register types (messages for networking)

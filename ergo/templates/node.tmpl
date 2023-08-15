@@ -1,32 +1,122 @@
 package {{.Package}}
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"flag"
+	{{ if index .Params "types" }}
+	"{{ index .Params "module" }}"
+	{{ end -}}
+
+	{{- range index .Params "applications" }}
+	"{{- index $.Params "module" }}/apps/{{ .LoName }}"
+	{{ end }}
+
+	{{ range index .Params "ext_applications" }}
+	"{{- index .Params "import" }}"
+	{{- end }}
+	{{ range index .Params "loggers" }}
+	"{{- index .Params "import" }}"
+	{{- end }}
+
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
+	{{ if index .Params "tls" }}
+	"ergo.services/ergo/lib"
+	{{ end }}
+
 )
+
+var (
+	OptionNodeName   string
+	OptionNodeCookie string
+	{{ if index .Params "cloud" }}
+	OptionCloudClusterName   string
+	OptionCloudClusterCookie string
+	{{ end }}
+)
+
+func init() {
+	// generate random value for cookie
+	buff := make([]byte, 12)
+	rand.Read(buff)
+	randomCookie := hex.EncodeToString(buff)
+
+	{{ if index .Params "host" -}}
+	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@{{ index .Params "host" }}", "node name")
+	{{ else -}}
+	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@localhost", "node name")
+	{{ end -}}
+	flag.StringVar(&OptionNodeCookie, "cookie", randomCookie, "a secret cookie for the network messaging")
+	{{ if index .Params "cloud" }}
+	// cloud options
+	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{ index .Params "cloud" }}", "cloud cluster name")
+	flag.StringVar(&OptionCloudClusterCookie, "cloud-cookie", "", "cloud cluster cookie")
+	{{ end }}
+}
 
 func main() {
 	var options gen.NodeOptions
 
+	flag.Parse()
+	{{ if index .Params "cloud" }}
+	cloudOptions := cloud.Options{
+		Cluster: OptionCloudClusterName,
+		Cookie: OptionCloudClusterCookie,
+	}
+	{{ end -}}
+
 	{{ if index .Params "applications" }}
-	// Create applications that must be started
-	options.Applications = []gen.ApplicationBehavior{ {{ range index .Params "applications" }}
+	// create applications that must be started
+	apps := []gen.ApplicationBehavior{ {{ range index .Params "ext_applications" }}
+	{{ .LoName }}.Create{{ .Name }}(), {{ end -}}
+	{{ range index .Params "applications" }}
 	{{ .LoName }}.Create{{ .Name }}(), {{ end }}
 	}
+	options.Applications = apps
+	{{ end }}
+
+	{{ if index .Params "tls" }}
+	// enable TLS with self-signed certificate
+	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} service")
+	options.Network.CertManager = gen.CreateCertManager(cert)
+	{{ end }}
+
+
+	{{ if index .Params "loggers" }}
+	// disable default logger
+	options.Log.DefaultLogger.Disable = true
+	{{ range index .Params "loggers" }}
+	// add logger "{{ .Name }}"
+	logger{{ .Name }} := gen.Logger{
+		Name: "{{ .Name }}",
+		Logger: {{ .Name }}.CreateLogger({{ .Name }}.Options{}),
+	}
+	options.Log.Loggers = append(options.Log.Loggers, logger{{ .Name }})
+	{{ end }}
 	{{ end }}
 
 	// starting node
-	{{.Name}}, err := ergo.StartNode("{{.Name}}", options)
+	node, err := ergo.StartNode(OptionNodeName, OptionNodeCookie, options)
 	if err != nil {
 		panic(err)
 	}
 
-	{{ range .Children }}
-	// starting process {{ .Name }}
-	if _, err := {{$.Name}}.SpawnRegister("{{ .LoName }}", factory_{{ .Name }}, gen.ProcessOptions{}); err != nil {
+	{{ if index .Params "types" }}
+	if err := {{ index $.Params "module-name" }}.RegisterTypes(); err != nil {
 		panic(err)
 	}
 	{{ end }}
 
-	{{.Name}}.Wait()
+	{{ range .Children}}
+	// starting process {{ .Name }}
+	if pid, err = node.SpawnRegister("{{ .LoName }}", factory_{{ .Name }}, gen.ProcessOptions{}); err == nil {
+		node.Log().Info("process '%s' started", {{ .LoName }})
+	} else {
+		panic(err)
+	}
+	{{ end }}
+
+	node.Wait()
 }
+

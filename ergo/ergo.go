@@ -22,9 +22,13 @@ var (
 	OptionWithUDP   listOptions
 	OptionWithPool  listOptions
 
-	OptionWithMsg      listOptions
+	OptionWithMsg    listOptions
+	OptionWithLogger listOptions
+
 	OptionWithObserver bool
-	OptionWithCloud    bool
+	OptionWithCloud    string
+
+	loggers map[string]string
 )
 
 func init() {
@@ -41,8 +45,15 @@ func init() {
 	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
+	flag.StringVar(&OptionWithCloud, "with-cloud", "", "Enable cloud with given cluster name")
+
 	flag.BoolVar(&OptionWithObserver, "with-observer", false, "Add Observer application")
-	flag.BoolVar(&OptionWithCloud, "with-cloud", false, "Enable cloud with given cluster name")
+
+	flag.Var(&OptionWithLogger, "with-logger", "Add logger. See https://github.com/ergo-services/logger for available loggers")
+	loggers = map[string]string{
+		"colored":  "ergo.services/logger/colored",
+		"colored2": "ergo.services/logger/colored2",
+	}
 }
 
 func main() {
@@ -76,6 +87,46 @@ func main() {
 		OptionWithApp.WithTemplates(templates.App).WithDir(dir).WithAppDir("apps"),
 	}
 
+	// check if observer has been enabled
+	ext_applications := listOptions{}
+	if OptionWithObserver {
+		observer := &Option{
+			Name:   "App",
+			LoName: "observer",
+			Params: make(map[string]any),
+		}
+		observer.Params["import"] = "ergo.services/application/observer"
+		ext_applications = append(ext_applications, observer)
+	}
+
+	// node options - cloud
+	if OptionWithCloud != "" {
+		optionNode.Params["cloud"] = OptionWithCloud
+		cloud := &Option{
+			Name:   "Client",
+			LoName: "cloud",
+			Params: make(map[string]any),
+		}
+		cloud.Params["import"] = "ergo.services/application/cloud"
+		ext_applications = append(ext_applications, cloud)
+	}
+
+	if len(ext_applications) > 0 {
+		optionNode.Params["ext_applications"] = ext_applications
+	}
+
+	if OptionWithLogger != nil {
+		for i := range OptionWithLogger {
+			m, exist := loggers[OptionWithLogger[i].Name]
+			if exist == false {
+				fmt.Printf("error: unknown logger name %q\n", OptionWithLogger[i].Name)
+				return
+			}
+			OptionWithLogger[i].Params["import"] = m
+		}
+		optionNode.Params["loggers"] = OptionWithLogger
+	}
+
 	fmt.Printf("Generating project %q...\n", dir)
 	for _, l := range list {
 		for _, option := range *l {
@@ -94,14 +145,7 @@ func main() {
 	if len(OptionWithApp) > 0 {
 		optionNode.Params["applications"] = OptionWithApp
 	}
-	// node options - cloud
-	if OptionWithCloud {
-		optionNode.Params["cloud"] = OptionWithCloud
-	}
-	// node options - observer
-	if OptionWithObserver {
-		optionNode.Params["observer"] = OptionWithObserver
-	}
+
 	// register types (messages for networking)
 	if len(OptionWithMsg) > 0 {
 		optionType := &Option{

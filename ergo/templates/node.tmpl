@@ -69,7 +69,7 @@ func main() {
 	{{ if index .Params "applications" }}
 	// create applications that must be started
 	apps := []gen.ApplicationBehavior{ {{ range index .Params "ext_applications" }}
-	{{ .LoName }}.Create{{ .Name }}(), {{ end -}}
+	{{ .LoName }}.Create{{ .Name }}({{ index .Params "args" }}), {{ end -}}
 	{{ range index .Params "applications" }}
 	{{ .LoName }}.Create{{ .Name }}(), {{ end }}
 	}
@@ -95,9 +95,10 @@ func main() {
 	options.Log.Loggers = append(options.Log.Loggers, logger{{ .Name }})
 	{{ end }}
 	{{ end }}
+	options.Network.Cookie = OptionNodeCookie
 
 	// starting node
-	node, err := ergo.StartNode(OptionNodeName, OptionNodeCookie, options)
+	node, err := ergo.StartNode(OptionNodeName, options)
 	if err != nil {
 		panic(err)
 	}

@@ -96,6 +96,7 @@ func main() {
 			Params: make(map[string]any),
 		}
 		observer.Params["import"] = "ergo.services/application/observer"
+		observer.Params["args"] = "observer.Options{}"
 		ext_applications = append(ext_applications, observer)
 	}
 
@@ -108,6 +109,7 @@ func main() {
 			Params: make(map[string]any),
 		}
 		cloud.Params["import"] = "ergo.services/application/cloud"
+		cloud.Params["args"] = "cloudOptions"
 		ext_applications = append(ext_applications, cloud)
 	}
 

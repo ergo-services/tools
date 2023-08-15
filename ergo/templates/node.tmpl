@@ -21,7 +21,7 @@ import (
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
-	{{ if index .Params "tls" }}
+	{{- if index .Params "tls" }}
 	"ergo.services/ergo/lib"
 	{{ end }}
 

@@ -1,44 +1,47 @@
 package {{ .Package }}
 
 import (
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/act"
 )
 
-func create{{ .Name }}() gen.SupervisorBehavior {
+func factory_{{ .Name }}() gen.ProcessBehavior {
 	return &{{ .Name }}{}
 }
 
 type {{ .Name }} struct {
-	gen.Supervisor
+	act.Supervisor
 }
 
-func (sup *{{ .Name }}) Init(args ...etf.Term) (gen.SupervisorSpec, error) {
-	spec := gen.SupervisorSpec{
-		Name: "{{ .LoName }}",
-		Children: []gen.SupervisorChildSpec{
+func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
+	var spec act.SupervisorSpec
+
+	// supervisor type
+	{{ $type := index .Params "type" }}
+	{{- if (eq $type "afo") }} spec.Type = act.SupervisorTypeAllForOne
+	{{- else if (eq $type "rfo") }} spec.Type = act.SupervisorTypeRestForOne
+	{{- else if (eq $type "sofo") }} spec.Type = act.SupervisorTypeSimpleOneForOne
+	{{- else }} spec.Type = act.SupervisorTypeOneForOne
+	{{- end }}
+
+	// add children
+	spec.Children = []gen.SupervisorChildSpec{
 		{{ range .Children -}}
-			gen.SupervisorChildSpec{
-				Name:  "{{ .LoName }}",
-				Child: factory_{{ .Name }},
-			},
+		{
+			Name:  "{{ .LoName }}",
+			Factory: factory_{{ .Name }},
+		},
 		{{ end -}}
-		},
-		Strategy: gen.SupervisorStrategy{
-			{{ $type := index .Params "type" }}
-			{{- if (eq $type "ofa") }} Type:      gen.SupervisorStrategyOneForAll,
-			{{- else if (eq $type "rfo") }} Type:      gen.SupervisorStrategyRestForOne,
-			{{- else if (eq $type "sofo") }} Type:      gen.SupervisorStrategySimpleOneForOne,
-			{{- else }} Type:      gen.SupervisorStrategyOneForOne,
-			{{- end }}
-			Intensity: 2, // How big bursts of restarts you want to tolerate.
-			Period:    5, // In seconds.
-			{{ $restart := index .Params "restart" }}
-			{{- if (eq $restart "perm") }} Restart:      gen.SupervisorStrategyRestartPermanent,
-			{{- else if (eq $restart "temp") }} Restart:      gen.SupervisorStrategyRestartTemporary,
-			{{- else }} Restart:      gen.SupervisorStrategyRestartTransient,
-			{{- end }}
-		},
 	}
+
+	// set strategy
+	spec.Restart.Strategy = {{ $restart := index .Params "restart" }}
+			{{- if (eq $restart "perm") }} act.SupervisorStrategyPermanent
+			{{- else if (eq $restart "temp") }} act.SupervisorStrategyTemporary
+			{{- else }} act.SupervisorStrategyTransient
+			{{- end }}
+	spec.Restart.Intensity = 2 // How big bursts of restarts you want to tolerate.
+	spec.Restart.Period = 5 // In seconds.
+
 	return spec, nil
 }

@@ -29,8 +29,8 @@ func (a *{{ .Name }}) Init(args ...any) error {
 // To stop this process normally, return gen.TerminateReasonNormal
 // or any other for abnormal termination.
 func (a *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
-	a.Log().Info("got message from %s: %s", from , message)
-	return any
+	a.Log().Info("got message from %s", from)
+	return nil
 }
 
 
@@ -38,11 +38,47 @@ func (a *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
 // Return nil as a result to handle this request asynchronously and
 // to provide the result later using the gen.Process.SendResponse(...) method.
 func (a *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-	a.Log().Info("got request from %s: %s", from , request)
-	return true, nil
+	a.Log().Info("got request from %s with reference %s", from, ref)
+	return gen.Atom("pong"), nil
 }
 
 // Terminate invoked on a termination process
 func (a *{{ .Name }}) Terminate(reason error) {
 	a.Log().Info("terminated with reason: %s", reason)
+}
+
+// HandleMessageName invoked if split handling was enabled using SetSplitHandle(true)
+// and message has been sent by name
+func (a *{{ .Name }}) HandleMessageName(name gen.Atom, from gen.PID, message any) error {
+	return nil
+}
+
+// HandleMessageAlias invoked if split handling was enabled using SetSplitHandle(true)
+// and message has been sent by alias
+func (a *{{ .Name }}) HandleMessageAlias(alias gen.Alias, from gen.PID, message any) error {
+	return nil
+}
+
+// HandleCallName invoked if split handling was enabled using SetSplitHandle(true)
+// and request was made by name
+func (a *{{ .Name }}) HandleCallName(name gen.Atom, from gen.PID, ref gen.Ref, request any) (any, error) {
+	return gen.Atom("pong"), nil
+}
+
+// HandleCallAlias invoked if split handling was enabled using SetSplitHandle(true)
+// and request was made by alias
+func (a *{{ .Name }}) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error) {
+	return gen.Atom("pong"), nil
+}
+
+// HandleLog invoked on a log message if this process was added as a logger.
+// See https://docs.ergo.services/basics/logging for more information
+func (a *{{ .Name }}) HandleLog(message any) error {
+	return nil
+}
+
+// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+func (a *{{ .Name }}) HandleInspect(from gen.PID) map[string]string {
+	a.Log().Info("got inspect request from %s", from)
+	return nil
 }

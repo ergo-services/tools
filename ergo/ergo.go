@@ -51,8 +51,7 @@ func init() {
 
 	flag.Var(&OptionWithLogger, "with-logger", "Add logger. See https://github.com/ergo-services/logger for available loggers")
 	loggers = map[string]string{
-		"colored":  "ergo.services/logger/colored",
-		"colored2": "ergo.services/logger/colored2",
+		"colored": "ergo.services/logger/colored",
 	}
 }
 
@@ -90,6 +89,7 @@ func main() {
 	// check if observer has been enabled
 	ext_applications := listOptions{}
 	if OptionWithObserver {
+		optionNode.Params["observer"] = true
 		observer := &Option{
 			Name:   "App",
 			LoName: "observer",
@@ -184,9 +184,13 @@ func main() {
 	optionReadme.Params["processes"] = optionNode.Children
 	optionReadme.Params["project"] = optionNode.Name
 	optionReadme.Params["types"] = OptionWithMsg
+	optionReadme.Params["loggers"] = OptionWithLogger
 
 	optionReadme.Params["optionObserver"] = OptionWithObserver
-	optionReadme.Params["optionCloud"] = OptionWithCloud
+	optionReadme.Params["optionCloud"] = false
+	if OptionWithCloud != "" {
+		optionReadme.Params["optionCloud"] = "true"
+	}
 
 	optionReadme.Params["optionTypes"] = "false"
 	if len(OptionWithMsg) > 0 {

@@ -4,6 +4,9 @@
  - Types for network messaging: {{ index .Params "optionTypes" }}
  - Enabled Observer: {{ index .Params "optionObserver"}}
  - Enabled Cloud: {{ index .Params "optionCloud"}}
+ {{- if index .Params "loggers" }}
+ - Loggers: {{- range index .Params "loggers" }} {{ .Name }}{{ end }}
+ {{ end }}
 
 ### Supervision Tree
 

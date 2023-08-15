@@ -13,10 +13,11 @@ type {{ .Name }} struct {
 	act.Supervisor
 }
 
+// Init invoked on a spawn Supervisor process. This is a mandatory callback for the implementation
 func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
 	var spec act.SupervisorSpec
 
-	// supervisor type
+	// set supervisor type
 	{{ $type := index .Params "type" }}
 	{{- if (eq $type "afo") }} spec.Type = act.SupervisorTypeAllForOne
 	{{- else if (eq $type "rfo") }} spec.Type = act.SupervisorTypeRestForOne
@@ -45,3 +46,48 @@ func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
 
 	return spec, nil
 }
+
+//
+// Methods below are optional, so you can remove those that aren't be used
+//
+
+// HandleChildStart invoked on a successful child process starting if option EnableHandleChild
+// was enabled in gen.SupervisorSpec
+func (sup *{{ .Name }}) HandleChildStart(name gen.Atom, pid gen.PID) error {
+	return nil
+}
+
+// HandleChildTerminate invoked on a child process termination if option EnableHandleChild
+// was enabled in act.SupervisorSpec
+func (sup *{{ .Name }}) HandleChildTerminate(name gen.Atom, pid gen.PID, reason error) error {
+	return nil
+}
+
+// HandleMessage invoked if Supervisor received a message sent with gen.Process.Send(...).
+// Non-nil value of the returning error will cause termination of this process.
+// To stop this process normally, return gen.TerminateReasonNormal or
+// gen.TerminateReasonShutdown. Any other - for abnormal termination.
+func (sup *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
+	sup.Log().Info("supervisor got message from %s", from)
+	return nil
+}
+
+// HandleCall invoked if Supervisor got a synchronous request made with gen.Process.Call(...).
+// Return nil as a result to handle this request asynchronously and
+// to provide the result later using the gen.Process.SendResponse(...) method.
+func (sup *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	sup.Log().Info("supervisor got request from %s with reference %s", from, ref)
+	return gen.Atom("pong"), nil
+}
+
+// Terminate invoked on a termination supervisor process
+func (sup *{{ .Name }}) Terminate(reason error) {
+	sup.Log().Info("supervisor terminated with reason: %s", reason)
+}
+
+// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+func (sup *{{ .Name }}) HandleInspect(from gen.PID) map[string]string {
+	sup.Log().Info("supervisor got inspect request from %s", from)
+	return nil
+}
+

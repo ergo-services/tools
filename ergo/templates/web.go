@@ -6,17 +6,12 @@ import (
 )
 
 const (
-	webTemplateActorFile   = "web.tmpl"
-	webTemplateHandlerFile = "web_handler.tmpl"
+	webTemplateActorFile = "web.tmpl"
 )
 
 //go:embed web.tmpl
 var webTemplateActorText string
 
-//go:embed web_handler.tmpl
-var webTemplateHandlerText string
-
 var Web = []*template.Template{
 	templateInit(webTemplateActorFile, webTemplateActorText),
-	templateInit(webTemplateHandlerFile, webTemplateHandlerText),
 }

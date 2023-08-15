@@ -10,35 +10,29 @@ func Create{{ .Name }}() gen.ApplicationBehavior {
 
 type {{ .Name }} struct {}
 
+// Load invoked on loading application using method ApplicationLoad of gen.Node interface.
 func (app *{{ .Name }}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name: "{{ .LoName }}",
 		Description: "description of this application",
+		{{ $type := index .Params "mode" }}
+		{{- if (eq $type "temp") }} Type: gen.ApplicationModeTemporary,
+		{{- else if (eq $type "perm") }} Type: gen.ApplicationModePermanent,
+		{{- else }} Type: gen.ApplicationModeTransient,
+		{{- end }}
 		Group: []gen.ApplicationMemberSpec{
 		{{ range .Children -}}
-			gen.ApplicationMemberSpec{
+			{
 				Name:  "{{ .LoName }}",
-				Factory: factory_{{ .Name }}(),
+				Factory: factory_{{ .Name }},
 			},
 		{{ end -}}
-		},
-		Strategy: gen.SupervisorStrategy{
-			{{ $type := index .Params "type" }}
-			{{- if (eq $type "ofa") }} Type:      gen.SupervisorStrategyOneForAll,
-			{{- else if (eq $type "rfo") }} Type:      gen.SupervisorStrategyRestForOne,
-			{{- else if (eq $type "sofo") }} Type:      gen.SupervisorStrategySimpleOneForOne,
-			{{- else }} Type:      gen.SupervisorStrategyOneForOne,
-			{{- end }}
-			Intensity: 2, // How big bursts of restarts you want to tolerate.
-			Period:    5, // In seconds.
-			{{ $restart := index .Params "restart" }}
-			{{- if (eq $restart "perm") }} Restart:      gen.SupervisorStrategyRestartPermanent,
-			{{- else if (eq $restart "temp") }} Restart:      gen.SupervisorStrategyRestartTemporary,
-			{{- else }} Restart:      gen.SupervisorStrategyRestartTransient,
-			{{- end }}
 		},
 	}, nil
 }
 
+// Start invoked once the application started
 func (app *{{ .Name }}) Start(mode gen.ApplicationMode) {}
+
+// Terminate invoked once the application stopped
 func (app *{{ .Name }}) Terminate(reason error)         {}

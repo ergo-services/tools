@@ -1,62 +1,121 @@
 package {{ .Package }}
 
 import (
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/meta"
 )
 
 func factory_{{ .Name }}() gen.ProcessBehavior {
 	return &{{ .Name }}{}
 }
 
+
 type {{ .Name }} struct {
-	act.UDP
+	act.Actor
 }
 
-//
-// Mandatory callbacks
-//
+// Init invoked on a start this process.
+func (u *{{ .Name }}) Init(args ...any) error {
+	var options meta.UDPOptions
 
-// InitUDP invoked on starting UDP server
-func (us *{{ .Name }}) InitUDP(process *gen.UDPProcess, args ...etf.Term) (gen.UDPOptions, error) {
-	var options gen.UDPOptions
-
-	options.Handler = create{{ .Name }}Handler()
 	{{- if index .Params "port" }}
 	options.Port = {{ index .Params "port" }}
 	{{- else }}
-	options.Port = 7654
+	options.Port = 7654 // use this port as an example
 	{{- end }}
-	{{- if index .Params "host" }}
+	{{ if index .Params "host" -}}
 	options.Host = "{{ index .Params "host" }}"
-	{{- end }}
-	{{- if index .Params "handlers" }}
-	options.NumHandlers = {{ index .Params "handlers" }}
-	{{- end }}
+	{{ end -}}
+	u.Log().Info("starting UDP server on %s:%d", options.Host, options.Port)
 
-	return options, nil
+
+	// we don't use options.Process so all UDP-packets will be handled by this process.
+	// for more information, see https://docs.ergo.services/meta-processes/udp
+
+	// create UDP server meta-process (opens UDP-port for the listener)
+	metaudp, err := meta.CreateUDP(options)
+	if err != nil {
+		u.Log().Error("unable to create UDP server meta-process: %s", err)
+		return err
+	}
+
+	// spawn meta process
+	id, err := u.SpawnMeta(metaudp, gen.MetaOptions{})
+	if err != nil {
+		u.Log().Error("unable to spawn UDP server meta-process: %s", err)
+		// we should close listening port
+		metaudp.Terminate(err)
+		return err
+	}
+
+	return nil
 }
 
 //
-// Optional gen.Server's callbacks
+// Methods below are optional, so you can remove those that aren't be used
 //
 
-// HandleUDPCall this callback is invoked on ServerProcess.Call(...).
-func (us *{{ .Name }}) HandleUDPCall(process *gen.UDPProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	return nil, gen.ServerStatusOK
+// HandleMessage receives a message with UDP-packet.
+func (u *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
+	switch m := message.(type) {
+	case meta.MessageUDP:
+		u.Log().Info("got udp packet from %s: %s ", m.Addr, string(m.Data))
+		m.Data = []byte("OK")
+		if err := u.SendAlias(m.ID, m); err != nil {
+			u.Log().Error("unable to send to %s: %s", m.ID, err)
+		}
+	default:
+		u.Log().Info("got unknown message from %s: %#v", from, message)
+	}
+	return nil
 }
 
-// HandleUDPCast this callback is invoked on ServerProcess.Cast(...).
-func (us *{{ .Name }}) HandleUDPCast(process *gen.UDPProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
+// HandleCall invoked if Actor got a synchronous request made with gen.Process.Call(...).
+// Return nil as a result to handle this request asynchronously and
+// to provide the result later using the gen.Process.SendResponse(...) method.
+func (u *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	u.Log().Info("got request from %s with reference %s", from, ref)
+	return gen.Atom("pong"), nil
 }
 
-// HandleUDPInfo this callback is invoked on Process.Send(...).
-func (us *{{ .Name }}) HandleUDPInfo(process *gen.UDPProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
+// Terminate invoked on a termination process
+func (u *{{ .Name }}) Terminate(reason error) {
+	u.Log().Info("terminated with reason: %s", reason)
 }
 
-// HandleUDPTerminate this callback invoked on a process termination
-func (us *{{ .Name }}) HandleUDPTerminate(process *gen.UDPProcess, reason string) {
+// HandleMessageName invoked if split handling was enabled using SetSplitHandle(true)
+// and message has been sent by name
+func (u *{{ .Name }}) HandleMessageName(name gen.Atom, from gen.PID, message any) error {
+	return nil
+}
 
+// HandleMessageAlias invoked if split handling was enabled using SetSplitHandle(true)
+// and message has been sent by alias
+func (u *{{ .Name }}) HandleMessageAlias(alias gen.Alias, from gen.PID, message any) error {
+	return nil
+}
+
+// HandleCallName invoked if split handling was enabled using SetSplitHandle(true)
+// and request was made by name
+func (u *{{ .Name }}) HandleCallName(name gen.Atom, from gen.PID, ref gen.Ref, request any) (any, error) {
+	return gen.Atom("pong"), nil
+}
+
+// HandleCallAlias invoked if split handling was enabled using SetSplitHandle(true)
+// and request was made by alias
+func (u *{{ .Name }}) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error) {
+	return gen.Atom("pong"), nil
+}
+
+// HandleLog invoked on a log message if this process was added as a logger.
+// See https://docs.ergo.services/basics/logging for more information
+func (u *{{ .Name }}) HandleLog(message any) error {
+	return nil
+}
+
+// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+func (u *{{ .Name }}) HandleInspect(from gen.PID) map[string]string {
+	u.Log().Info("got inspect request from %s", from)
+	return nil
 }

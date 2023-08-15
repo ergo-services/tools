@@ -49,6 +49,7 @@ func (u *{{ .Name }}) Init(args ...any) error {
 		return err
 	}
 
+	u.Log().Info("started UDP server on %s:%d (meta-process: %s)", options.Host, options.Port, id)
 	return nil
 }
 

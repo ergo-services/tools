@@ -26,7 +26,7 @@ func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
 	{{- end }}
 
 	// add children
-	spec.Children = []gen.SupervisorChildSpec{
+	spec.Children = []act.SupervisorChildSpec{
 		{{ range .Children -}}
 		{
 			Name:  "{{ .LoName }}",
@@ -52,7 +52,7 @@ func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
 //
 
 // HandleChildStart invoked on a successful child process starting if option EnableHandleChild
-// was enabled in gen.SupervisorSpec
+// was enabled in act.SupervisorSpec
 func (sup *{{ .Name }}) HandleChildStart(name gen.Atom, pid gen.PID) error {
 	return nil
 }

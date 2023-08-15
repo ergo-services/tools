@@ -16,9 +16,9 @@ func (app *{{ .Name }}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, e
 		Name: "{{ .LoName }}",
 		Description: "description of this application",
 		{{ $type := index .Params "mode" }}
-		{{- if (eq $type "temp") }} Type: gen.ApplicationModeTemporary,
-		{{- else if (eq $type "perm") }} Type: gen.ApplicationModePermanent,
-		{{- else }} Type: gen.ApplicationModeTransient,
+		{{- if (eq $type "temp") }} Mode: gen.ApplicationModeTemporary,
+		{{- else if (eq $type "perm") }} Mode: gen.ApplicationModePermanent,
+		{{- else }} Mode: gen.ApplicationModeTransient,
 		{{- end }}
 		Group: []gen.ApplicationMemberSpec{
 		{{ range .Children -}}

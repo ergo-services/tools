@@ -27,7 +27,6 @@ func (t *{{ .Name }}) Init(args ...any) error {
 	{{ if index .Params "host" -}}
 	options.Host = "{{ index .Params "host" }}"
 	{{ end -}}
-	t.Log().Info("starting TCP server on %s:%d", options.Host, options.Port)
 
 	{{ if index .Params "tls" }}
 	// Enable SSL with self-signed certificate
@@ -55,6 +54,7 @@ func (t *{{ .Name }}) Init(args ...any) error {
 		return err
 	}
 
+	t.Log().Info("started TCP server on %s:%d (meta-process: %s)", options.Host, options.Port, id)
 	return nil
 }
 

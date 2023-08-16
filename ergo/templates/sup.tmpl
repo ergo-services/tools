@@ -36,7 +36,7 @@ func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
 	}
 
 	// set strategy
-	spec.Restart.Strategy = {{ $restart := index .Params "restart" }}
+	spec.Restart.Strategy = {{ $restart := index .Params "strategy" }}
 			{{- if (eq $restart "perm") }} act.SupervisorStrategyPermanent
 			{{- else if (eq $restart "temp") }} act.SupervisorStrategyTemporary
 			{{- else }} act.SupervisorStrategyTransient

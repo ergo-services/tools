@@ -38,10 +38,6 @@ func (w *{{ .Name }}) Init(args ...any) (act.WebOptions, error) {
 	{{ if index .Params "tls" }}
 	// enabling TLS with node's certificate
 	options.CertManager = w.Node().Network().CertManager()
-	if options.CertManager != nil {
-		w.Log().Info("enabling TLS. you may check it with command below:")
-		w.Log().Info("   $ openssl s_client -connect %s:%d\n", options.Host, options.Port)
-	}
 	{{- end }}
 
 	mux := http.NewServeMux()

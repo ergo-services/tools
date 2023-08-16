@@ -104,7 +104,8 @@ func main() {
 	}
 
 	{{ if index .Params "types" }}
-	if err := {{ index $.Params "module-name" }}.RegisterTypes(); err != nil {
+	// register network messages
+	if err := node.Network().RegisterMessage({{ index $.Params "module-name" }}.Messages...); err != nil {
 		panic(err)
 	}
 	{{ end }}

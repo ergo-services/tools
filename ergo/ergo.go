@@ -128,6 +128,9 @@ func main() {
 		}
 		optionNode.Params["loggers"] = OptionWithLogger
 	}
+	if len(OptionWithMsg) > 0 {
+		optionNode.Params["types"] = true
+	}
 
 	fmt.Printf("Generating project %q...\n", dir)
 	for _, l := range list {

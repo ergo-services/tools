@@ -15,10 +15,6 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   `go install ergo.services/tools/ergo@latest`
 
-  Please follow this pattern, keeping the order of declaration according to the supervision tree of your project:
-
-   `ParentActor:Actor{param1:value1,param2:value2...}`
-
   Doc: https://docs.ergo.services/tools/ergo
 
 - ### observer

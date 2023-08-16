@@ -26,7 +26,10 @@ func (t *{{ .Name }}) Init(args ...any) error {
 	{{- end }}
 	{{ if index .Params "host" -}}
 	options.Host = "{{ index .Params "host" }}"
-	{{ end -}}
+	{{ end }}
+
+	// we don't use options.ProcessPool so all TCP-connections will be handled by this process.
+	// for more information, see https://docs.ergo.services/meta-processes/tcp
 
 	{{ if index .Params "tls" }}
 	// enabling TLS with node's certificate
@@ -35,10 +38,7 @@ func (t *{{ .Name }}) Init(args ...any) error {
 		t.Log().Info("enabling TLS. you may check it with command below:")
 		t.Log().Info("   $ openssl s_client -connect %s:%d\n", options.Host, options.Port)
 	}
-	{{ end -}}
-
-	// we don't use options.ProcessPool so all TCP-connections will be handled by this process.
-	// for more information, see https://docs.ergo.services/meta-processes/tcp
+	{{ end }}
 
 	// create TCP server meta-process (opens TCP-port for the listener)
 	metatcp, err := meta.CreateTCP(options)

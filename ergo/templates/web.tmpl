@@ -53,7 +53,7 @@ func (w *{{ .Name }}) Init(args ...any) (act.WebOptions, error) {
 		return options, err
 	}
 	// add it to the mux. you can also use middleware functions:
-	// options.Handler.Handle("/", middleware(root))
+	// mux.Handle("/", middleware(root))
 	mux.Handle("/", root)
 
 	{{ if index .Params "websocket" }}
@@ -67,13 +67,18 @@ func (w *{{ .Name }}) Init(args ...any) (act.WebOptions, error) {
 		w.Log().Error("unable to start WebSocket handler meta-process: %s", err)
 		return options, err
 	}
-	// add it to the mux
+	// add it to the mux. you can use middleware function here as well:
+	// mux.Handle("/", middleware(ws))
 	mux.Handle("/ws", ws)
-	{{- end }}
+	{{ end }}
 	options.Handler = mux
 
 	{{- if index .Params "tls" }}
-	w.Log().Info("started Web server on https://%s:%d/", options.Host, options.Port)
+	if options.CertManager != nil {
+		w.Log().Info("started Web server on https://%s:%d/", options.Host, options.Port)
+	} else {
+		w.Log().Info("started Web server on http://%s:%d/", options.Host, options.Port)
+	}
 	{{- else }}
 	w.Log().Info("started Web server on http://%s:%d/", options.Host, options.Port)
 	{{- end }}

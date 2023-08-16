@@ -1,34 +1,31 @@
 package {{ .Package }}
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/json"
 	"net/http"
 
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
-	{{ if index .Params "ssl" }}
-	"crypto/tls"
-	"github.com/ergo-services/ergo/lib"
-	{{ end }}
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/meta"
+	{{ if index .Params "websocket" }}
+	"ergo.services/meta/websocket"
+	{{- end }}
 )
 
-func create{{ .Name }}() gen.WebBehavior {
+func factory_{{ .Name }}() gen.ProcessBehavior{
 	return &{{ .Name }}{}
 }
 
 type {{ .Name }} struct {
-	gen.Web
+	act.Web
 }
 
-//
-// Mandatory callbacks
-//
+// Init invoked on a start this process.
+func (w *{{ .Name }}) Init(args ...any) (act.WebOptions, error) {
+	var options act.WebOptions
 
-// InitWeb invoked on starting Web server
-func (w *{{ .Name }}) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebOptions, error) {
-	var options gen.WebOptions
-
-	{{- if index .Params "port" }}
+	{{ if index .Params "port" }}
 	options.Port = {{ index .Params "port" }}
 	{{- else }}
 	options.Port = 9090
@@ -38,49 +35,102 @@ func (w *{{ .Name }}) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.We
 	{{- else }}
 	options.Host = "localhost"
 	{{- end }}
-	{{- if index .Params "ssl" }}
-	// enable TLS with self-signed certificate
-	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} Service")
-	certUpdater := lib.CreateCertUpdater(cert)
-	tlsConfig := &tls.Config{
-		GetCertificate: certUpdater.GetCertificateFunc(),
+	{{ if index .Params "tls" }}
+	// enabling TLS with node's certificate
+	options.CertManager = w.Node().Network().CertManager()
+	if options.CertManager != nil {
+		w.Log().Info("enabling TLS. you may check it with command below:")
+		w.Log().Info("   $ openssl s_client -connect %s:%d\n", options.Host, options.Port)
 	}
-	options.TLS = tlsConfig
 	{{- end }}
 
 	mux := http.NewServeMux()
-	handlerOptions := gen.WebHandlerOptions{
-		{{ if index .Params "handlers" }} NumHandlers: {{ index .Params "handlers" }}, {{ end }}
-		IdleTimeout:    10,
-		RequestTimeout: 20,
+
+	// create and spawn root handler meta-process.
+	// we leave meta.WebHandlerOptions.Process empty to handle HTTP-requests by this process
+	// within the HandleMessage callback. But you may want to use the pool of the processes.
+	// see https://docs.ergo.services/actors/web for more information
+	root := meta.CreateWebHandler(meta.WebHandlerOptions{})
+	rootid, err := w.SpawnMeta(root, gen.MetaOptions{})
+	if err != nil {
+		w.Log().Error("unable to start WebHandler meta-process: %s", err)
+		return options, err
 	}
-	webRoot := process.StartWebHandler(create{{ .Name }}Handler(), handlerOptions)
-	mux.Handle("/", webRoot)
+	// add it to the mux. you can also use middleware functions:
+	// options.Handler.Handle("/", middleware(root))
+	mux.Handle("/", root)
+
+	{{ if index .Params "websocket" }}
+	// create and spawn websocket handler meta-process.
+	// we leave websocket.HandlerOptions.ProcessPool empty to handle websocket-connections
+	// by this process.
+	// see https://docs.ergo.services/extra-library/meta-processes/websocket for more information
+	ws := websocket.CreateHandler(websocket.HandlerOptions{})
+	wsid, err := w.SpawnMeta(ws, gen.MetaOptions{})
+	if err != nil {
+		w.Log().Error("unable to start WebSocket handler meta-process: %s", err)
+		return options, err
+	}
+	// add it to the mux
+	mux.Handle("/ws", ws)
+	{{- end }}
 	options.Handler = mux
 
-	{{- if index .Params "ssl" }}
-	fmt.Printf("Start Web server on https://%s:%d/\n", options.Host, options.Port)
+	{{- if index .Params "tls" }}
+	w.Log().Info("started Web server on https://%s:%d/", options.Host, options.Port)
 	{{- else }}
-	fmt.Printf("Start Web server on http://%s:%d/\n", options.Host, options.Port)
+	w.Log().Info("started Web server on http://%s:%d/", options.Host, options.Port)
 	{{- end }}
+	w.Log().Info("    endpoint  '/'   (meta-process: %s)", rootid)
+	{{- if index .Params "websocket" }}
+	w.Log().Info("    websocket '/ws' (meta-process: %s)", wsid)
+	{{- end }}
+
 	return options, nil
 }
 
-//
-// Optional gen.Server's callbacks
-//
+func (w *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
 
-// HandleWebCall this callback is invoked on ServerProcess.Call(...).
-func (w *{{ .Name }}) HandleWebCall(process *gen.WebProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	return nil, gen.ServerStatusOK
+	switch m := message.(type) {
+	{{- if index .Params "websocket" }}
+	//
+	// handle websocket messages
+	//
+	case websocket.MessageConnect:
+		w.Log().Info("new connection: %v", m)
+	case websocket.MessageDisconnect:
+		w.Log().Info("disconnected: %v", m)
+	case websocket.Message:
+		w.Log().Info("got websocket message: %v", m)
+
+		// send reply as a JSON message with information about this process
+		m.Body = w.info()
+		if err := w.SendAlias(m.ID, m); err != nil {
+			w.Log().Error("unable to send: %s", err)
+		}
+	{{- end }}
+	//
+	// handle HTTP-requests
+	//
+	case meta.MessageWebRequest:
+		defer m.Done()
+		w.Log().Info("got HTTP request %q", m.Request.URL.Path)
+		m.Response.Header().Set("Content-Type", "application/json")
+		m.Response.Write(w.info())
+	default:
+		w.Log().Info("unhandled message from %s", from)
+	}
+
+	return nil
 }
 
-// HandleWebCast this callback is invoked on ServerProcess.Cast(...).
-func (w *{{ .Name }}) HandleWebCast(process *gen.WebProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
-}
+func (w *{{ .Name }}) info() []byte {
+	var buf bytes.Buffer
 
-// HandleWebInfo this callback is invoked on Process.Send(...).
-func (w *{{ .Name }}) HandleWebInfo(process *gen.WebProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
+	info, _ := w.Info()
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.Encode(info)
+
+	return buf.Bytes()
 }

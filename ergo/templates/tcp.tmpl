@@ -29,10 +29,12 @@ func (t *{{ .Name }}) Init(args ...any) error {
 	{{ end -}}
 
 	{{ if index .Params "tls" }}
-	// Enable SSL with self-signed certificate
+	// enabling TLS with node's certificate
 	options.CertManager = t.Node().Network().CertManager()
-	t.Log().Info("enabling TLS. you may check it with command below:")
-	t.Log().Info("   $ openssl s_client -connect %s:%d\n", options.Host, options.Port)
+	if options.CertManager != nil {
+		t.Log().Info("enabling TLS. you may check it with command below:")
+		t.Log().Info("   $ openssl s_client -connect %s:%d\n", options.Host, options.Port)
+	}
 	{{ end -}}
 
 	// we don't use options.ProcessPool so all TCP-connections will be handled by this process.

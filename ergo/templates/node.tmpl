@@ -98,7 +98,7 @@ func main() {
 	options.Network.Cookie = OptionNodeCookie
 
 	// starting node
-	node, err := ergo.StartNode(OptionNodeName, options)
+	node, err := ergo.StartNode(gen.Atom(OptionNodeName), options)
 	if err != nil {
 		panic(err)
 	}
@@ -111,9 +111,7 @@ func main() {
 
 	{{ range .Children}}
 	// starting process {{ .Name }}
-	if pid, err = node.SpawnRegister("{{ .LoName }}", factory_{{ .Name }}, gen.ProcessOptions{}); err == nil {
-		node.Log().Info("process '%s' started", {{ .LoName }})
-	} else {
+	if _, err := node.SpawnRegister("{{ .LoName }}", factory_{{ .Name }}, gen.ProcessOptions{}); err != nil {
 		panic(err)
 	}
 	{{ end }}

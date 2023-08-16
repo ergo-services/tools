@@ -27,8 +27,6 @@ func (u *{{ .Name }}) Init(args ...any) error {
 	{{ if index .Params "host" -}}
 	options.Host = "{{ index .Params "host" }}"
 	{{ end -}}
-	u.Log().Info("starting UDP server on %s:%d", options.Host, options.Port)
-
 
 	// we don't use options.Process so all UDP-packets will be handled by this process.
 	// for more information, see https://docs.ergo.services/meta-processes/udp

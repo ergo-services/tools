@@ -14,7 +14,7 @@ type {{ .Name }}Worker struct {
 
 // Init invoked on a start this process.
 func (w *{{ .Name }}Worker) Init(args ...any) error {
-	w.Log().Info("started worker process in pool: ", w.Parent())
+	w.Log().Info("started worker process in pool: %s", w.Parent())
 	return nil
 }
 

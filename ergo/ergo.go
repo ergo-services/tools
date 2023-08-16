@@ -104,7 +104,7 @@ func main() {
 	if OptionWithCloud != "" {
 		optionNode.Params["cloud"] = OptionWithCloud
 		cloud := &Option{
-			Name:   "Client",
+			Name:   "App",
 			LoName: "cloud",
 			Params: make(map[string]any),
 		}

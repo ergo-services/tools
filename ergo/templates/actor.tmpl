@@ -16,7 +16,7 @@ type {{ .Name }} struct {
 
 // Init invoked on a start this process.
 func (a *{{ .Name }}) Init(args ...any) error {
-	a.Log().Info("Init process with name %s and args %v \n", a.Name(), args)
+	a.Log().Info("started process with name %s and args %v", a.Name(), args)
 	return nil
 }
 

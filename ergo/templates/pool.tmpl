@@ -20,6 +20,7 @@ func (p *{{ .Name }}) Init(args ...any) (act.PoolOptions, error) {
 		PoolSize: {{ if index .Params "size" }} {{ index .Params "size" }} {{ else }} 3 {{ end }},
 	}
 
+	p.Log().Info("started process pool with %d workers", opts.PoolSize)
 	return opts, nil
 }
 

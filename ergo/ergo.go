@@ -21,9 +21,10 @@ var (
 	OptionWithTCP   listOptions
 	OptionWithUDP   listOptions
 	OptionWithPool  listOptions
+	OptionWithMsg   listOptions
 
-	OptionWithMsg    listOptions
-	OptionWithLogger listOptions
+	OptionWithLogger    listOptions
+	OptionWithLogRotate bool
 
 	OptionWithObserver bool
 	OptionWithCloud    string
@@ -53,6 +54,7 @@ func init() {
 	loggers = map[string]string{
 		"colored": "ergo.services/logger/colored",
 	}
+	flag.BoolVar(&OptionWithLogRotate, "with-logrotate", false, "Add log rotation for the default logger. See https://github.com/ergo-services/basics/logging for more information")
 }
 
 func main() {
@@ -128,6 +130,11 @@ func main() {
 		}
 		optionNode.Params["loggers"] = OptionWithLogger
 	}
+
+	if OptionWithLogRotate {
+		optionNode.Params["rotate"] = OptionWithLogRotate
+	}
+
 	if len(OptionWithMsg) > 0 {
 		optionNode.Params["types"] = true
 	}

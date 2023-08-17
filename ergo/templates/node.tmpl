@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
-	{{ if index .Params "types" }}
+	{{- if index .Params "rotate" }}
+	"time"
+	{{ end -}}
+	{{- if index .Params "types" }}
 	"{{ index .Params "module" }}"
 	{{ end -}}
 
@@ -21,7 +24,7 @@ import (
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
-	{{- if index .Params "tls" }}
+	{{- if or (index .Params "tls") (index .Params "rotate") }}
 	"ergo.services/ergo/lib"
 	{{ end }}
 
@@ -81,13 +84,31 @@ func main() {
 	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} service")
 	options.Network.CertManager = gen.CreateCertManager(cert)
 	{{ end }}
-
+	{{ if index .Params "rotate" }}
+	// add log rotation for the default logger.
+	// it makes disabled logging to the os.Stdout
+	rotate := lib.RotateOptions{
+		Period: time.Minute * 5,
+		Compress: false, // to enable gziping
+		Depth: 12, // keep logs for the last 2 hours
+		Prefix: OptionNodeName, // filename format: <Path>/<Prefix>.YYYYMMDDHHMi.log[.gz]
+	}
+	output, err := lib.CreateRotateWriter(rotate)
+	if err != nil {
+		panic(err)
+	}
+	defer output.Close()
+	options.Log.DefaultLogger.Output = output
+	{{ end -}}
 
 	{{ if index .Params "loggers" }}
-	// disable default logger
+	{{ if not (index .Params "rotate") }}
+	// disable default logger to get rid of multiple logging to the os.Stdout
 	options.Log.DefaultLogger.Disable = true
+	{{ end }}
 	{{ range index .Params "loggers" }}
-	// add logger "{{ .Name }}"
+	// add logger "{{ .Name }}".
+	// it enables colorized logging to the os.Stdout
 	logger{{ .Name }} := gen.Logger{
 		Name: "{{ .Name }}",
 		Logger: {{ .Name }}.CreateLogger({{ .Name }}.Options{}),

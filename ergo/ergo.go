@@ -32,17 +32,17 @@ var (
 )
 
 func init() {
-	flag.Var(&OptionInit, "init", "Node name. Available params: ssl, module")
+	flag.Var(&OptionInit, "init", "Node name. Available params: tls, module")
 	flag.StringVar(&OptionPath, "path", ".", "Set location")
 
-	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized.")
-	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, restart")
+	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized. Available params: mode")
+	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, strategy")
 
 	flag.Var(&OptionWithActor, "with-actor", "Add actor")
-	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, ssl")
-	flag.Var(&OptionWithTCP, "with-tcp", "Add TCP-server. Available params: host, port, ssl")
+	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, tls")
+	flag.Var(&OptionWithTCP, "with-tcp", "Add TCP-server. Available params: host, port, tls")
 	flag.Var(&OptionWithUDP, "with-udp", "Add UDP-server. Available params: host, port")
-	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers")
+	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers. Available params: size")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
 	flag.StringVar(&OptionWithCloud, "with-cloud", "", "Enable cloud with given cluster name")

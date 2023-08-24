@@ -24,3 +24,11 @@ Tools that make your life easier working with Ergo Framework [https://github.com
   `go install ergo.services/tools/observer@latest`
 
   Doc: https://docs.ergo.services/tools/observer
+
+  ### saturn
+
+  This is a central registrar for the nodes made with Ergo Framework. It provides service discovery and configuration management features.
+
+  `go install ergo.services/tools/saturn@latest`
+
+  Doc: https://docs.ergo.services/tools/saturn

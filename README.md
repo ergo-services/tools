@@ -8,7 +8,7 @@
 
 Tools that make your life easier working with Ergo Framework [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo) and Ergo Services [https://ergo.services](https://ergo.services).
 
-### ergo
+## ergo
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](ergo/LICENSE)
 
   This is the boilerplate code generator to create a service with Ergo Framework. To install it, use the following command:
@@ -17,7 +17,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   Doc: https://docs.ergo.services/tools/ergo
 
-### observer
+## observer
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](observer/LICENSE)
 
   This tool allows you to inspect nodes in your cluster, running processes (including meta-processes) and, their state:
@@ -26,7 +26,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   Doc: https://docs.ergo.services/tools/observer
 
-### saturn
+## saturn
 [![BUSL 1.1](https://img.shields.io/badge/license-BUSL_1.1-31af90.svg)](saturn/LICENSE)
 
   This is a central registrar for the nodes made with Ergo Framework. It also provides a simple way to propagate configuration on the fly (pushing updates) among the registered nodes.

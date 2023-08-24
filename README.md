@@ -15,8 +15,6 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   `go install ergo.services/tools/ergo@latest`
 
-  License: [MIT](ergo/LICENSE)
-
   Doc: https://docs.ergo.services/tools/ergo
 
 - ### observer
@@ -25,8 +23,6 @@ Tools that make your life easier working with Ergo Framework [https://github.com
   This tool allows you to inspect nodes in your cluster, running processes (including meta-processes) and, their state:
 
   `go install ergo.services/tools/observer@latest`
-
-  License: [MIT](observer/LICENSE)
 
   Doc: https://docs.ergo.services/tools/observer
 

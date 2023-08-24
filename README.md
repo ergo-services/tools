@@ -30,7 +30,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
 - ### saturn
 
-  This is a central registrar for the nodes made with Ergo Framework. It provides service discovery and configuration management features.
+  This is a central registrar for the nodes made with Ergo Framework. It allows you to run a central registrar for all your services made with Ergo Framework. It also provides a simple way to propagate configuration on the fly (pushing updates) among the registered nodes.
 
   `go install ergo.services/tools/saturn@latest`
 

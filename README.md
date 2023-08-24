@@ -15,6 +15,8 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   `go install ergo.services/tools/ergo@latest`
 
+  License: [MIT](ergo/LICENSE)
+
   Doc: https://docs.ergo.services/tools/ergo
 
 - ### observer
@@ -23,6 +25,8 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   `go install ergo.services/tools/observer@latest`
 
+  License: [MIT](observer/LICENSE)
+
   Doc: https://docs.ergo.services/tools/observer
 
 - ### saturn
@@ -30,5 +34,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
   This is a central registrar for the nodes made with Ergo Framework. It provides service discovery and configuration management features.
 
   `go install ergo.services/tools/saturn@latest`
+
+  License: [BUSL 1.1](saturn/LICENSE)
 
   Doc: https://docs.ergo.services/tools/saturn

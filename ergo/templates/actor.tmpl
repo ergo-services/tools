@@ -73,7 +73,14 @@ func (a *{{ .Name }}) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref
 
 // HandleLog invoked on a log message if this process was added as a logger.
 // See https://docs.ergo.services/basics/logging for more information
-func (a *{{ .Name }}) HandleLog(message any) error {
+func (a *{{ .Name }}) HandleLog(message gen.MessageLog) error {
+	return nil
+}
+
+// HandleEvent invoked on an event message if this process got subscribed on
+// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
+// See https://docs.ergo.services/basics/events for more information
+func (a *{{ .Name }}) HandleEvent(message gen.MessageEvent) error {
 	return nil
 }
 

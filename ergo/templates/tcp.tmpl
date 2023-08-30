@@ -124,9 +124,17 @@ func (t *{{ .Name }}) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref
 
 // HandleLog invoked on a log message if this process was added as a logger.
 // See https://docs.ergo.services/basics/logging for more information
-func (t *{{ .Name }}) HandleLog(message any) error {
+func (t *{{ .Name }}) HandleLog(message gen.MessageLog) error {
 	return nil
 }
+
+// HandleEvent invoked on an event message if this process got subscribed on
+// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
+// See https://docs.ergo.services/basics/events for more information
+func (t *{{ .Name }}) HandleEvent(message gen.MessageEvent) error {
+	return nil
+}
+
 
 // HandleInspect invoked on the request made with gen.Process.Inspect(...)
 func (t *{{ .Name }}) HandleInspect(from gen.PID) map[string]string {

@@ -42,7 +42,7 @@ func (r *{{ .Name }}Handler) HandleWebHandlerInfo(process *gen.WebHandlerProcess
 	return gen.ServerStatusOK
 }
 
-// HandleWebHandlerTerminate this callback is invoked on the process termiation, providing the reason of termination
+// HandleWebHandlerTerminate this callback is invoked on the process termination, providing the reason of termination
 // along with the counter of handled requests
 func (r *{{ .Name }}Handler) HandleWebHandlerTerminate(process *gen.WebHandlerProcess, reason string, count int64) {
 

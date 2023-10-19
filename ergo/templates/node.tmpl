@@ -8,7 +8,7 @@ import (
 	"time"
 	{{ end -}}
 	{{- if index .Params "types" }}
-	"{{ index .Params "module" }}"
+	//"{{ index .Params "module" }}"
 	{{ end -}}
 
 	{{- range index .Params "applications" }}
@@ -82,7 +82,7 @@ func main() {
 	{{ if index .Params "tls" }}
 	// enable TLS with self-signed certificate
 	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} service")
-	options.Network.CertManager = gen.CreateCertManager(cert)
+	options.CertManager = gen.CreateCertManager(cert)
 	{{ end }}
 
 	{{ if index .Params "loggers" }}
@@ -108,9 +108,9 @@ func main() {
 
 	{{ if index .Params "types" }}
 	// register network messages
-	if err := node.Network().RegisterMessage({{ index $.Params "module-name" }}.Messages...); err != nil {
-		panic(err)
-	}
+	//if err := node.Network().RegisterMessage({{ index $.Params "module-name" }}.Messages...); err != nil {
+	//	panic(err)
+	//}
 	{{ end }}
 
 	{{ range .Children}}

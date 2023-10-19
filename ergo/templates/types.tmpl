@@ -1,20 +1,8 @@
 package {{ .Package }}
 
-import (
-	"ergo.services/ergo/gen"
-)
-
 {{ range .Children -}}
 type {{ .Name }} struct{
 	// Add your fields
 }
 {{ end -}}
-
-var (
-	Messages = []gen.NetworkMessage{
-	{{ range .Children -}}
-		{ Message: {{ .Name }}{}, Strict:{{ if index .Params "strict" }} true {{ else }} false{{ end }} },
-	{{ end -}}
-	}
-)
 

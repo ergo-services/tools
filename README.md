@@ -26,11 +26,11 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   Doc: https://docs.ergo.services/tools/observer
 
-## saturn
-[![BSL 1.1](https://img.shields.io/badge/license-BSL_1.1-31af90.svg)](saturn/LICENSE)
+## nomics
+[![BSL 1.1](https://img.shields.io/badge/license-BSL_1.1-31af90.svg)](nomics/LICENSE)
 
   This is a central registrar for the nodes made with Ergo Framework. It also provides a simple way to propagate configuration on the fly (pushing updates) among the registered nodes.
 
-  `go install ergo.services/tools/saturn@latest`
+  `go install ergo.services/tools/nomics@latest`
 
-  Doc: https://docs.ergo.services/tools/saturn
+  Doc: https://docs.ergo.services/tools/nomics

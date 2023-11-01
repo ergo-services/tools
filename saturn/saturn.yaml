@@ -1,0 +1,24 @@
+Service:
+  Debug: false
+
+  Token: "IwOBhgAEAGzPtkvugDBhYCS7P"
+
+  ProxyTransit: false
+  Cookie:
+
+  Certificate:
+    Fullchain.file:
+    Private.file:
+
+Cluster:
+  Certificate:
+    Fullchain.file:
+    Private.file:
+
+  example1: 315
+  example2.file:
+
+  node@localhost:
+    example1.float: 3.14
+    example2.int: 314
+    example3: 314

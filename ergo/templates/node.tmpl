@@ -1,8 +1,6 @@
 package {{.Package}}
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	{{- if index .Params "rotate" }}
 	"time"
@@ -40,17 +38,12 @@ var (
 )
 
 func init() {
-	// generate random value for cookie
-	buff := make([]byte, 12)
-	rand.Read(buff)
-	randomCookie := hex.EncodeToString(buff)
-
 	{{ if index .Params "host" -}}
 	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@{{ index .Params "host" }}", "node name")
 	{{ else -}}
 	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@localhost", "node name")
 	{{ end -}}
-	flag.StringVar(&OptionNodeCookie, "cookie", randomCookie, "a secret cookie for the network messaging")
+	flag.StringVar(&OptionNodeCookie, "cookie", lib.RandomString(16), "a secret cookie for the network messaging")
 	{{ if index .Params "cloud" }}
 	// cloud options
 	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{ index .Params "cloud" }}", "cloud cluster name")

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 
 	"ergo.services/logger/colored"
 
@@ -58,12 +59,14 @@ func main() {
 	options.Log.Loggers = append(options.Log.Loggers, gen.Logger{Name: "colored", Logger: loggercolored})
 
 	options.Network.Mode = gen.NetworkModeDisabled
-	options.Version = Version
+	//options.Version = Version
 
 	node, err := ergo.StartNode(gen.Atom(OptionNodeName), options)
 	if err != nil {
 		panic(err)
 	}
+
+	fmt.Println("vvvvv", node.Version(), "ffff", node.FrameworkVersion())
 
 	node.Wait()
 }

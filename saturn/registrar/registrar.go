@@ -84,13 +84,11 @@ func (r *Registrar) Init(args ...any) error {
 	}
 
 	r.conns = make(map[gen.Alias]*connection)
+	r.chunks = make(map[gen.Alias][]byte)
+
 	r.Log().Info("started registrar server on %s:%d (meta-process: %s)", tcpOptions.Host, tcpOptions.Port, id)
 	return nil
 }
-
-//
-// Methods below are optional, so you can remove those that aren't be used
-//
 
 // HandleMessage receives a message on a new connection, data packet, or disconnection.
 // To serve the new TCP connection, the meta-process of the TCP server spawns the new meta-process.
@@ -143,7 +141,7 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 			return nil
 		}
 
-		v, ch, err := edf.Decode(chunk, edf.Options{})
+		v, ch, err := edf.Decode(chunk[4:], edf.Options{})
 		if err != nil {
 			r.SendExitMeta(m.ID, err)
 			return nil
@@ -218,15 +216,6 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				r.SendExitMeta(m.ID, err)
 			}
 
-		case saturn.MessageConfig:
-			if conn.state != connStateRegistered {
-				r.SendExitMeta(m.ID, errIncorrectState)
-				return nil
-			}
-			if err := r.handleConfig(m.ID, sm); err != nil {
-				r.SendExitMeta(m.ID, err)
-			}
-
 		default:
 			r.Log().Error("unknown message %#v", v)
 		}
@@ -297,16 +286,40 @@ func (r *Registrar) handleHandshake(mp gen.Alias, message saturn.MessageHandshak
 	return r.SendAlias(mp, reply)
 }
 
-func (r *Registrar) handleRegister(id gen.Alias, message saturn.MessageRegister) error {
-	return nil
+func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister) error {
+
+	// TODO try to register this node
+
+	result := saturn.MessageRegisterResult{}
+
+	buf := lib.TakeBuffer()
+
+	buf.Allocate(4)
+	buf.B[0] = saturn.Proto
+	buf.B[1] = saturn.ProtoVersion
+
+	if err := edf.Encode(result, buf, edf.Options{}); err != nil {
+		return err
+	}
+
+	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
+	reply := meta.MessageTCP{
+		ID:   mp,
+		Data: buf.B,
+	}
+	return r.SendAlias(mp, reply)
 }
 
 func (r *Registrar) handleRegisterProxy(id gen.Alias, message saturn.MessageRegisterProxy) error {
+	// no reply for this message
 	return nil
 
 }
 
 func (r *Registrar) handleRegisterApplication(id gen.Alias, message saturn.MessageRegisterApplication) error {
+
+	r.Log().Info("register new application route", message.Route)
+	// no reply for this message
 	return nil
 
 }
@@ -322,11 +335,6 @@ func (r *Registrar) handleResolveProxy(id gen.Alias, message saturn.MessageResol
 }
 
 func (r *Registrar) handleResolveApplication(id gen.Alias, message saturn.MessageResolveApplication) error {
-	return nil
-
-}
-
-func (r *Registrar) handleConfig(id gen.Alias, message saturn.MessageConfig) error {
 	return nil
 
 }

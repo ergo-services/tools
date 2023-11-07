@@ -186,18 +186,43 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				r.SendExitMeta(m.ID, errIncorrectState)
 				return nil
 			}
-			if err := r.handleRegisterProxy(m.ID, sm); err != nil {
-				r.SendExitMeta(m.ID, err)
+			if sm.Route.Proxy != conn.node {
+				r.Log().Error("unable to register proxy route: node name mismatch (exp: %s, got: %s)",
+					conn.node, sm.Route.Proxy)
+				return nil
 			}
+			r.handleRegisterProxy(sm.Route)
+
+		case saturn.MessageUnregisterProxy:
+			if conn.state != connStateRegistered {
+				r.SendExitMeta(m.ID, errIncorrectState)
+				return nil
+			}
+			if sm.Route.Proxy != conn.node {
+				r.Log().Error("unable to unregister proxy route: node name mismatch (exp: %s, got: %s)",
+					conn.node, sm.Route.Proxy)
+				return nil
+			}
+			r.handleUnregisterProxy(sm.Route)
 
 		case saturn.MessageRegisterApplication:
 			if conn.state != connStateRegistered {
 				r.SendExitMeta(m.ID, errIncorrectState)
 				return nil
 			}
-			// override node name
-			sm.Route.Node = conn.node
-			r.handleRegisterApplication(m.ID, sm.Route)
+			if sm.Route.Node != conn.node {
+				r.Log().Error("unable to register application: node name mismatch (exp: %s, got: %s)",
+					conn.node, sm.Route.Node)
+				return nil
+			}
+			r.handleRegisterApplication(sm.Route)
+
+		case saturn.MessageUnregisterApplication:
+			if conn.state != connStateRegistered {
+				r.SendExitMeta(m.ID, errIncorrectState)
+				return nil
+			}
+			r.handleUnregisterApplication(sm.Name, conn.node)
 
 		case saturn.MessageResolve:
 			if conn.state != connStateRegistered {
@@ -302,7 +327,12 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 
 	r.Log().Debug("registered node %s in cluster %q (serving meta-process: %s)", message.Node, message.Cluster, mp)
 	for _, appRoute := range message.Routes.Applications {
-		r.handleRegisterApplication(mp, appRoute)
+		if appRoute.Node != message.Node {
+			r.Log().Error("unable to register application: node name mismatch (exp: %s, got: %s)",
+				message.Node, appRoute.Node)
+			continue
+		}
+		r.handleRegisterApplication(appRoute)
 	}
 	result := saturn.MessageRegisterResult{}
 
@@ -324,18 +354,30 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 	return r.SendAlias(mp, reply)
 }
 
-func (r *Registrar) handleRegisterProxy(id gen.Alias, message saturn.MessageRegisterProxy) error {
+func (r *Registrar) handleRegisterProxy(route gen.ProxyRoute) error {
+	r.Log().Debug("registered proxy route to %s via node %s", route.To, route.Proxy)
 	// no reply for this message
 	return nil
-
 }
 
-func (r *Registrar) handleRegisterApplication(mp gen.Alias, route gen.ApplicationRoute) {
+func (r *Registrar) handleUnregisterProxy(route gen.ProxyRoute) error {
+	r.Log().Debug("unregistered proxy route to %s via node %s", route.To, route.Proxy)
+	// no reply for this message
+	return nil
+}
 
-	r.Log().Debug("registered application %s on node %s (serving meta-process: %s)", route.Name, route.Node, mp)
+func (r *Registrar) handleRegisterApplication(route gen.ApplicationRoute) {
+
+	r.Log().Debug("registered application %s on node %s", route.Name, route.Node)
 	// no reply for this message
 	return
 
+}
+
+func (r *Registrar) handleUnregisterApplication(name gen.Atom, node gen.Atom) {
+	r.Log().Debug("unregistered application %s on node %s", name, node)
+	// no reply for this message
+	return
 }
 
 func (r *Registrar) handleResolve(id gen.Alias, message saturn.MessageResolve) error {

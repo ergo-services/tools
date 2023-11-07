@@ -46,9 +46,10 @@ var (
 )
 
 type connection struct {
-	state int
-	node  gen.Atom
-	ip    net.Addr
+	state   int
+	node    gen.Atom
+	cluster string
+	ip      net.Addr
 
 	checkCancel gen.CancelFunc
 }
@@ -109,9 +110,14 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 	case meta.MessageTCPDisconnect:
 		r.Log().Debug("terminated connection (serving meta-process: %s)", m.ID)
 		if conn, found := r.conns[m.ID]; found {
-			r.Send(NameStorage, StorageUnregister{conn.node})
+			if err := r.Send(NameStorage, StorageUnregister{conn.node}); err != nil {
+				r.Log().Error("unable to unregister node in the storage: %s", err)
+				// try one more time in a second
+				r.SendAfter(NameStorage, StorageUnregister{conn.node}, time.Second)
+			}
 			delete(r.conns, m.ID)
 			delete(r.chunks, m.ID)
+			r.Log().Debug("unregistered node %s in cluster %q (serving meta-process: %s)", conn.node, conn.cluster, m.ID)
 		}
 
 	case meta.MessageTCP:
@@ -159,6 +165,7 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				return nil
 			}
 			conn.state = connStateRegister
+			r.Log().Debug("handshaked (serving meta-process: %s)", m.ID)
 
 		case saturn.MessageRegister:
 			if conn.state != connStateRegister {
@@ -170,6 +177,9 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				return nil
 			}
 			conn.state = connStateRegistered
+			conn.cluster = sm.Cluster
+			conn.node = sm.Node
+			conn.checkCancel() // cancel timer
 
 		case saturn.MessageRegisterProxy:
 			if conn.state != connStateRegistered {
@@ -185,9 +195,9 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				r.SendExitMeta(m.ID, errIncorrectState)
 				return nil
 			}
-			if err := r.handleRegisterApplication(m.ID, sm); err != nil {
-				r.SendExitMeta(m.ID, err)
-			}
+			// override node name
+			sm.Route.Node = conn.node
+			r.handleRegisterApplication(m.ID, sm.Route)
 
 		case saturn.MessageResolve:
 			if conn.state != connStateRegistered {
@@ -290,6 +300,10 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 
 	// TODO try to register this node
 
+	r.Log().Debug("registered node %s in cluster %q (serving meta-process: %s)", message.Node, message.Cluster, mp)
+	for _, appRoute := range message.Routes.Applications {
+		r.handleRegisterApplication(mp, appRoute)
+	}
 	result := saturn.MessageRegisterResult{}
 
 	buf := lib.TakeBuffer()
@@ -316,11 +330,11 @@ func (r *Registrar) handleRegisterProxy(id gen.Alias, message saturn.MessageRegi
 
 }
 
-func (r *Registrar) handleRegisterApplication(id gen.Alias, message saturn.MessageRegisterApplication) error {
+func (r *Registrar) handleRegisterApplication(mp gen.Alias, route gen.ApplicationRoute) {
 
-	r.Log().Info("register new application route", message.Route)
+	r.Log().Debug("registered application %s on node %s (serving meta-process: %s)", route.Name, route.Node, mp)
 	// no reply for this message
-	return nil
+	return
 
 }
 

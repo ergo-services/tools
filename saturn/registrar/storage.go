@@ -12,9 +12,15 @@ import (
 
 func factoryStorage() gen.ProcessBehavior {
 	return &storage{
-		config: make(map[string]any),
-		nodes:  make(map[gen.Atom][]gen.Route),
+		config:   make(map[string]any),
+		clusters: make(map[string]cluster),
 	}
+}
+
+type cluster struct {
+	nodes        map[gen.Atom][]gen.Route            // node => routes
+	applications map[gen.Atom][]gen.ApplicationRoute // application => routes
+	proxies      map[gen.Atom][]gen.ProxyRoute       // to => routes
 }
 
 type storage struct {
@@ -22,7 +28,8 @@ type storage struct {
 
 	fc     *koanf.Koanf
 	config map[string]any
-	nodes  map[gen.Atom][]gen.Route
+
+	clusters map[string]cluster
 }
 
 func (s *storage) Init(args ...any) error {

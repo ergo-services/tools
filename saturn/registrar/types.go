@@ -12,16 +12,30 @@ const (
 )
 
 type StorageRegister struct {
-	Node   gen.Atom
-	Routes []gen.Route
+	Cluster string
+	Node    gen.Atom
+	Routes  []gen.Route
 }
 
 type StorageRegisterResult struct {
 	Error  error
-	Event  gen.Event
 	Config map[string]any
+	Nodes  []gen.Atom
 }
 
 type StorageUnregister struct {
-	Node gen.Atom
+	Cluster string
+	Node    gen.Atom
+}
+
+type StorageRegisterApplication struct {
+}
+
+type StorageUnregisterApplication struct {
+}
+
+type StorageRegisterProxy struct {
+}
+
+type StorageUnregisterProxy struct {
 }

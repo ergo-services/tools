@@ -110,14 +110,17 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 	case meta.MessageTCPDisconnect:
 		r.Log().Debug("terminated connection (meta-process: %s)", m.ID)
 		if conn, found := r.conns[m.ID]; found {
-			if err := r.Send(NameStorage, StorageUnregister{conn.node}); err != nil {
-				r.Log().Error("unable to unregister node in the storage: %s", err)
-				// try one more time in a second
-				r.SendAfter(NameStorage, StorageUnregister{conn.node}, time.Second)
+			if conn.state == connStateRegistered {
+				if err := r.Send(NameStorage, StorageUnregister{Cluster: conn.cluster, Node: conn.node}); err != nil {
+					r.Log().Error("unable to unregister node in the storage: %s", err)
+					// try one more time in a second
+					r.SendAfter(NameStorage, StorageUnregister{Cluster: conn.cluster, Node: conn.node}, time.Second)
+				}
+				delete(r.conns, m.ID)
+				delete(r.chunks, m.ID)
+				r.Log().Info("unregistered node %s in cluster %q (terminated meta-process: %s)", conn.node, conn.cluster, m.ID)
+				r.broadcast(saturn.MessageNodeLeft{Node: conn.node}, conn.cluster, conn.node)
 			}
-			delete(r.conns, m.ID)
-			delete(r.chunks, m.ID)
-			r.Log().Info("unregistered node %s in cluster %q (terminated meta-process: %s)", conn.node, conn.cluster, m.ID)
 		}
 
 	case meta.MessageTCP:
@@ -168,18 +171,19 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 			r.Log().Debug("handshaked (serving meta-process: %s)", m.ID)
 
 		case saturn.MessageRegister:
+			conn.checkCancel() // cancel timer
 			if conn.state != connStateRegister {
 				r.SendExitMeta(m.ID, errIncorrectState)
 				return nil
 			}
 			if err := r.handleRegister(m.ID, sm); err != nil {
+				r.Log().Error("unable to register node %s: %s", sm.Node, err)
 				r.SendExitMeta(m.ID, err)
 				return nil
 			}
 			conn.state = connStateRegistered
 			conn.cluster = sm.Cluster
 			conn.node = sm.Node
-			conn.checkCancel() // cancel timer
 
 		case saturn.MessageRegisterProxy:
 			if conn.state != connStateRegistered {
@@ -323,18 +327,40 @@ func (r *Registrar) handleHandshake(mp gen.Alias, message saturn.MessageHandshak
 
 func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister) error {
 
-	// TODO try to register this node
-
-	r.Log().Info("registered node %s in cluster %q (serving meta-process: %s)", message.Node, message.Cluster, mp)
-	for _, appRoute := range message.Routes.Applications {
-		if appRoute.Node != message.Node {
-			r.Log().Error("unable to register application: node name mismatch (exp: %s, got: %s)",
-				message.Node, appRoute.Node)
-			continue
-		}
-		r.handleRegisterApplication(appRoute, message.Cluster)
+	sr := StorageRegister{
+		Cluster: message.Cluster,
+		Node:    message.Node,
+		Routes:  message.RegisterRoutes.Routes,
 	}
-	result := saturn.MessageRegisterResult{}
+	v, err := r.Call(NameStorage, sr)
+	if err != nil {
+		return err
+	}
+	srr, ok := v.(StorageRegisterResult)
+	if ok == false {
+		r.Log().Error("storage returned incorrect result: %#v\n", v)
+		return gen.ErrInternal
+	}
+
+	if srr.Error == nil {
+		r.Log().Info("registered node %s in cluster %q (serving meta-process: %s)", message.Node, message.Cluster, mp)
+		for _, appRoute := range message.RegisterRoutes.ApplicationRoutes {
+			if appRoute.Node != message.Node {
+				r.Log().Error("unable to register application route: node name mismatch (exp: %s, got: %s)",
+					message.Node, appRoute.Node)
+				continue
+			}
+			r.handleRegisterApplication(appRoute, message.Cluster)
+		}
+		for _, proxyRoute := range message.RegisterRoutes.ProxyRoutes {
+			r.handleRegisterProxy(proxyRoute, message.Cluster)
+		}
+	}
+	result := saturn.MessageRegisterResult{
+		Error:  srr.Error,
+		Config: srr.Config,
+		Nodes:  srr.Nodes,
+	}
 
 	buf := lib.TakeBuffer()
 
@@ -351,7 +377,14 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 		ID:   mp,
 		Data: buf.B,
 	}
-	return r.SendAlias(mp, reply)
+	if err := r.SendAlias(mp, reply); err != nil {
+		return err
+	}
+
+	// send saturn.MessageNodeJoined to the peers (result.Nodes)
+	r.broadcast(saturn.MessageNodeJoined{Node: message.Node}, message.Cluster, message.Node)
+
+	return result.Error
 }
 
 func (r *Registrar) handleRegisterProxy(route gen.ProxyRoute, cluster string) error {
@@ -403,8 +436,6 @@ func (r *Registrar) handleResolve(mp gen.Alias, message saturn.MessageResolve, c
 		Data: buf.B,
 	}
 	return r.SendAlias(mp, reply)
-	return nil
-
 }
 
 func (r *Registrar) handleResolveProxy(id gen.Alias, message saturn.MessageResolveProxy, cluster string) error {
@@ -417,4 +448,34 @@ func (r *Registrar) handleResolveApplication(id gen.Alias, message saturn.Messag
 	r.Log().Debug("resolve application request: %s", message.Name)
 	return nil
 
+}
+
+func (r *Registrar) broadcast(message any, cluster string, skip gen.Atom) {
+	buf := lib.TakeBuffer()
+
+	buf.Allocate(4)
+	buf.B[0] = saturn.Proto
+	buf.B[1] = saturn.ProtoVersion
+
+	if err := edf.Encode(message, buf, edf.Options{}); err != nil {
+		r.Log().Error("unable to encode broadcast message: %s", err)
+		return
+	}
+
+	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
+	msg := meta.MessageTCP{
+		Data: buf.B,
+	}
+	for mp, conn := range r.conns {
+		if conn.cluster != cluster {
+			continue
+		}
+		if conn.node == skip {
+			continue
+		}
+		if conn.state != connStateRegistered {
+			continue
+		}
+		r.SendAlias(mp, msg)
+	}
 }

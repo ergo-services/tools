@@ -248,15 +248,6 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				r.SendExitMeta(m.ID, err)
 			}
 
-		case saturn.MessageResolveApplication:
-			if conn.state != connStateRegistered {
-				r.SendExitMeta(m.ID, errIncorrectState)
-				return nil
-			}
-			if err := r.handleResolveApplication(m.ID, sm, conn.cluster); err != nil {
-				r.SendExitMeta(m.ID, err)
-			}
-
 		default:
 			r.Log().Error("unknown message %#v", v)
 		}
@@ -416,6 +407,7 @@ func (r *Registrar) handleUnregisterApplication(name gen.Atom, node gen.Atom, cl
 }
 
 func (r *Registrar) handleResolve(mp gen.Alias, message saturn.MessageResolve, cluster string) error {
+	// TODO
 	r.Log().Debug("resolve request: %s", message.Name)
 	result := saturn.MessageResolveResult{
 		ID:    message.ID,
@@ -441,13 +433,8 @@ func (r *Registrar) handleResolve(mp gen.Alias, message saturn.MessageResolve, c
 }
 
 func (r *Registrar) handleResolveProxy(id gen.Alias, message saturn.MessageResolveProxy, cluster string) error {
+	// TODO
 	r.Log().Debug("resolve proxy request: %s", message.Name)
-	return nil
-
-}
-
-func (r *Registrar) handleResolveApplication(id gen.Alias, message saturn.MessageResolveApplication, cluster string) error {
-	r.Log().Debug("resolve application request: %s", message.Name)
 	return nil
 
 }

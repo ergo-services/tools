@@ -65,13 +65,28 @@ func (s *storage) HandleMessage(from gen.PID, message any) error {
 			s.Log().Error("unable to unregister node: %s", err)
 			return nil
 		}
+		if len(cl.nodeRoutes) == 0 {
+			delete(s.clusters, m.Cluster)
+		}
 		return nil
 
 	case StorageRegisterApplication:
-		panic("todo")
+		cl, exist := s.clusters[m.Cluster]
+		if exist == false {
+			s.Log().Error("unable to register app, uknown cluster: %q", m.Cluster)
+			return nil
+		}
+		cl.registerApp(m.Route)
+		return nil
 
 	case StorageUnregisterApplication:
-		panic("todo")
+		cl, exist := s.clusters[m.Cluster]
+		if exist == false {
+			s.Log().Error("unable to register app, uknown cluster: %q", m.Cluster)
+			return nil
+		}
+		cl.unregisterApp(m.Name, m.Node)
+		return nil
 
 	case StorageRegisterProxy:
 		panic("todo")
@@ -109,6 +124,7 @@ func (s *storage) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	result.Config = cl.getConfig(reg.Node)
 	result.Nodes = cl.listPeers(reg.Node)
+	result.Applications = cl.listApps(reg.Node)
 
 	return result, nil
 }
@@ -150,6 +166,19 @@ func (cl *cluster) listPeers(node gen.Atom) []gen.Atom {
 	return nodes
 }
 
+func (cl *cluster) listApps(skip gen.Atom) []gen.ApplicationRoute {
+	var routes []gen.ApplicationRoute
+	for _, appRoutes := range cl.applicationRoutes {
+		for _, route := range appRoutes {
+			if route.Node == skip {
+				continue
+			}
+			routes = append(routes, route)
+		}
+	}
+	return routes
+}
+
 func (cl *cluster) registerNode(node gen.Atom, routes []gen.Route) error {
 	_, taken := cl.nodeRoutes[node]
 	if taken {
@@ -158,6 +187,7 @@ func (cl *cluster) registerNode(node gen.Atom, routes []gen.Route) error {
 	cl.nodeRoutes[node] = routes
 	return nil
 }
+
 func (cl *cluster) unregisterNode(node gen.Atom) error {
 	_, found := cl.nodeRoutes[node]
 	if found == false {
@@ -205,4 +235,24 @@ func (cl *cluster) unregisterNode(node gen.Atom) error {
 	}
 
 	return nil
+}
+
+func (cl *cluster) registerApp(route gen.ApplicationRoute) {
+	routes := cl.applicationRoutes[route.Name]
+	routes = append(routes, route)
+	cl.applicationRoutes[route.Name] = routes
+}
+
+func (cl *cluster) unregisterApp(name gen.Atom, node gen.Atom) {
+	routes := cl.applicationRoutes[name]
+	for i := range routes {
+		if routes[i].Node != node {
+			continue
+		}
+
+		routes[0] = routes[i]
+		routes = routes[1:]
+		cl.applicationRoutes[name] = routes
+		return
+	}
 }

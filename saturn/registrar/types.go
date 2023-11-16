@@ -18,9 +18,10 @@ type StorageRegister struct {
 }
 
 type StorageRegisterResult struct {
-	Error  error
-	Config map[string]any
-	Nodes  []gen.Atom
+	Error        error
+	Config       map[string]any
+	Nodes        []gen.Atom
+	Applications []gen.ApplicationRoute
 }
 
 type StorageUnregister struct {
@@ -29,9 +30,14 @@ type StorageUnregister struct {
 }
 
 type StorageRegisterApplication struct {
+	Cluster string
+	Route   gen.ApplicationRoute
 }
 
 type StorageUnregisterApplication struct {
+	Cluster string
+	Name    gen.Atom
+	Node    gen.Atom
 }
 
 type StorageRegisterProxy struct {

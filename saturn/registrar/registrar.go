@@ -350,9 +350,10 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 		}
 	}
 	result := saturn.MessageRegisterResult{
-		Error:  srr.Error,
-		Config: srr.Config,
-		Nodes:  srr.Nodes,
+		Error:        srr.Error,
+		Config:       srr.Config,
+		Nodes:        srr.Nodes,
+		Applications: srr.Applications,
 	}
 
 	buf := lib.TakeBuffer()
@@ -393,7 +394,14 @@ func (r *Registrar) handleUnregisterProxy(route gen.ProxyRoute, cluster string) 
 }
 
 func (r *Registrar) handleRegisterApplication(route gen.ApplicationRoute, cluster string) {
-
+	sra := StorageRegisterApplication{
+		Cluster: cluster,
+		Route:   route,
+	}
+	if err := r.Send(NameStorage, sra); err != nil {
+		r.Log().Error("unable to send StorageRegisterApplication: %s", err)
+		return
+	}
 	r.Log().Info("registered application %s on node %s", route.Name, route.Node)
 	// no reply for this message
 	return
@@ -401,6 +409,15 @@ func (r *Registrar) handleRegisterApplication(route gen.ApplicationRoute, cluste
 }
 
 func (r *Registrar) handleUnregisterApplication(name gen.Atom, node gen.Atom, cluster string) {
+	sua := StorageUnregisterApplication{
+		Cluster: cluster,
+		Name:    name,
+		Node:    node,
+	}
+	if err := r.Send(NameStorage, sua); err != nil {
+		r.Log().Error("unable to send StorageUnregisterApplication: %s", err)
+		return
+	}
 	r.Log().Info("unregistered application %s on node %s", name, node)
 	// no reply for this message
 	return

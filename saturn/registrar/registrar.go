@@ -220,6 +220,7 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				return nil
 			}
 			r.handleRegisterApplication(sm.Route, conn.cluster)
+			r.broadcast(saturn.MessageApplicationStarted{Route: sm.Route}, conn.cluster, conn.node)
 
 		case saturn.MessageUnregisterApplication:
 			if conn.state != connStateRegistered {
@@ -227,6 +228,7 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 				return nil
 			}
 			r.handleUnregisterApplication(sm.Name, conn.node, conn.cluster)
+			r.broadcast(saturn.MessageApplicationTerminated{Name: sm.Name, Node: conn.node, Reason: sm.Reason}, conn.cluster, conn.node)
 
 		case saturn.MessageResolve:
 			if conn.state != connStateRegistered {

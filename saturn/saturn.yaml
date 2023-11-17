@@ -1,24 +1,48 @@
-Service:
-  Debug: false
-
-  Token: "IwOBhgAEAGzPtkvugDBhYCS7P"
-
-  ProxyTransit: false
-  Cookie:
-
+#
+# Configuration for the Saturn. Any changes require a restart service
+#
+Saturn:
+  Token: "IwOBhgAEAGzPtkvugDBhYCS7P1"
   Certificate:
     Fullchain.file:
     Private.file:
 
-Cluster:
+#
+# Configuration for the clusters. Any updates will be pushed to the nodes immediately
+#
+Clusters:
+  # Common configuration for all nodes in any cluster
   Certificate:
     Fullchain.file:
     Private.file:
 
-  example1: 315
-  example2.file:
+  Example1: 3158
 
   node@localhost:
-    example1.float: 3.14
-    example2.int: 314
-    example3: 314
+    # Configuration for the nodes with name "node@localhost" in any cluster
+    Example: "valuee"
+    # config value below overrides value of 'Example1' from the common configuration
+    Example1: 3.14
+
+  Cluster@:
+    # Configuration for nodes with empty cluster name value
+    Example10: 1234
+    node@localhost:
+      Example101: "val102"
+    demo@localhost:
+      Yammy: "gummy"
+
+  Cluster@mycluster:
+    # Configuration for nodes in the cluster "mycluster"
+    Common1: "value"
+    Common2: 1234
+
+    node@localhost:
+      # Configuration for the node with name "node@localhost" in the "mycluster"
+      ExampleA: "Hello World"
+      # config value below overrides value of 'Example1' from the common configuration
+      # for the node@localhost
+      Example1: 316
+      # config value below overrides value of 'Common1' from the configuration of this cluster
+      Common1: "value1"
+

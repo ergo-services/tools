@@ -262,6 +262,36 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 			return nil
 		}
 
+	case configUpdate:
+		buf := lib.TakeBuffer()
+
+		buf.Allocate(4)
+		buf.B[0] = saturn.Proto
+		buf.B[1] = saturn.ProtoVersion
+
+		update := saturn.MessageConfigUpdate{
+			Item:  m.item,
+			Value: m.value,
+		}
+
+		if err := edf.Encode(update, buf, edf.Options{}); err != nil {
+			r.Log().Error("unable to encode config update message: %s", err)
+			return nil
+		}
+
+		binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
+		msg := meta.MessageTCP{
+			Data: buf.B,
+		}
+		for mp, conn := range r.conns {
+			if m.all == false && m.cluster != conn.cluster {
+				continue
+			}
+			if m.node == "*" || gen.Atom(m.node) == conn.node {
+				r.SendAlias(mp, msg)
+			}
+		}
+
 	default:
 		r.Log().Error("got unknown message from %s: %#v", from, message)
 	}
@@ -382,13 +412,13 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 }
 
 func (r *Registrar) handleRegisterProxy(route gen.ProxyRoute, cluster string) error {
-	r.Log().Info("registered proxy route to %s via node %s", route.To, route.Proxy)
+	r.Log().Info("registered proxy route to %s via node %s in cluster %q", route.To, route.Proxy, cluster)
 	// no reply for this message
 	return nil
 }
 
 func (r *Registrar) handleUnregisterProxy(route gen.ProxyRoute, cluster string) error {
-	r.Log().Info("unregistered proxy route to %s via node %s", route.To, route.Proxy)
+	r.Log().Info("unregistered proxy route to %s via node %s in cluster %q", route.To, route.Proxy, cluster)
 	// no reply for this message
 	return nil
 }
@@ -402,7 +432,7 @@ func (r *Registrar) handleRegisterApplication(route gen.ApplicationRoute, cluste
 		r.Log().Error("unable to send StorageRegisterApplication: %s", err)
 		return
 	}
-	r.Log().Info("registered application %s on node %s", route.Name, route.Node)
+	r.Log().Info("registered application %s on node %s in cluster %q", route.Name, route.Node, cluster)
 	// no reply for this message
 	return
 
@@ -418,7 +448,7 @@ func (r *Registrar) handleUnregisterApplication(name gen.Atom, node gen.Atom, cl
 		r.Log().Error("unable to send StorageUnregisterApplication: %s", err)
 		return
 	}
-	r.Log().Info("unregistered application %s on node %s", name, node)
+	r.Log().Info("unregistered application %s on node %s in cluster %q", name, node, cluster)
 	// no reply for this message
 	return
 }

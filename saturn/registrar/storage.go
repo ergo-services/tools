@@ -53,7 +53,6 @@ func (s *storage) Init(args ...any) error {
 	var path string
 
 	if v, found := s.Env(ENV_CONFIG_PATH); found {
-		s.Log().Debug("got CONFIG PATH env: %v", v)
 		path, _ = v.(string)
 	}
 	s.configFile = filepath.Join(path, "saturn.yaml")
@@ -184,9 +183,16 @@ func (s *storage) readConfig(notify bool) error {
 				// no changes
 				continue
 			}
-			s.Node().SetEnv(gen.Env(key), v)
 			if value != nil {
 				s.Log().Warning("value of %q has changed. restart service to take effect", key)
+			}
+			switch key {
+			case "Saturn:Token":
+				s.Node().SetEnv(gen.Env(ENV_REGISTRAR_TOKEN), v)
+				continue
+
+			default:
+				s.Log().Error("unknown Saturn config item %q. ignored", key)
 			}
 			continue
 		}
@@ -220,7 +226,10 @@ func (s *storage) readConfig(notify bool) error {
 			nodeName := "*"
 			if len(fields) > 2 && strings.Contains(fields[2], "@") {
 				nodeName = fields[2]
-				itemKey = strings.TrimPrefix(key, fmt.Sprintf("%s:%s:%s:", fields[0], fields[1], fields[2]))
+				itemKey = strings.TrimPrefix(
+					key,
+					fmt.Sprintf("%s:%s:%s:", fields[0], fields[1], fields[2]),
+				)
 			}
 			configKey := fmt.Sprintf("%s:%s:%s", clname, nodeName, itemKey)
 
@@ -230,7 +239,12 @@ func (s *storage) readConfig(notify bool) error {
 				s.Log().Debug("new value for %s in cluster %q: %v", configKey, cl.name, newValue)
 				if notify {
 					// notify nodes in the cl.name cluster
-					update := configUpdate{cluster: cl.name, node: nodeName, item: configKey, value: newValue}
+					update := configUpdate{
+						cluster: cl.name,
+						node:    nodeName,
+						item:    configKey,
+						value:   newValue,
+					}
 					s.Send(NameRegistrar, update)
 				}
 			}

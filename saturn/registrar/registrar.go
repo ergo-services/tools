@@ -12,7 +12,6 @@ import (
 	"ergo.services/ergo/lib"
 	"ergo.services/ergo/meta"
 	"ergo.services/ergo/net/edf"
-
 	"ergo.services/registrar/saturn"
 )
 
@@ -23,14 +22,8 @@ func factoryRegistrar() gen.ProcessBehavior {
 type Registrar struct {
 	act.Actor
 
-	token  string
 	conns  map[gen.Alias]*connection
 	chunks map[gen.Alias][]byte
-}
-
-type RegistrarArgs struct {
-	Port  uint16
-	Token string
 }
 
 const (
@@ -60,12 +53,16 @@ type checkRegistration struct {
 
 // Init invoked on a start this process.
 func (r *Registrar) Init(args ...any) error {
-	rargs := args[0].(RegistrarArgs)
-	r.token = rargs.Token
+	fmt.Println("ENVS", r.Node().EnvList())
+	vport, _ := r.Env(ENV_REGISTRAR_PORT)
+	port, _ := vport.(uint16)
+	vhost, _ := r.Env(ENV_REGISTRAR_HOST)
+	host, _ := vhost.(string)
 
 	// create meta tcp server
 	tcpOptions := meta.TCPOptions{
-		Port:            rargs.Port,
+		Port:            port,
+		Host:            host,
 		CertManager:     r.Node().CertManager(),
 		KeepAlivePeriod: time.Second * 3,
 	}
@@ -87,7 +84,8 @@ func (r *Registrar) Init(args ...any) error {
 	r.conns = make(map[gen.Alias]*connection)
 	r.chunks = make(map[gen.Alias][]byte)
 
-	r.Log().Info("started registrar server on %s:%d (meta-process: %s)", tcpOptions.Host, tcpOptions.Port, id)
+	r.Log().
+		Info("started registrar server on %s:%d (meta-process: %s)", tcpOptions.Host, tcpOptions.Port, id)
 	return nil
 }
 
@@ -317,15 +315,20 @@ func (r *Registrar) Terminate(reason error) {
 }
 
 func (r *Registrar) handleHandshake(mp gen.Alias, message saturn.MessageHandshake) error {
+	token, exist := r.Node().Env(ENV_REGISTRAR_TOKEN)
+	if exist == false {
+		r.Log().Error("token value is empty")
+		return gen.ErrIncorrect
+	}
 	hash := sha256.New()
-	hash.Write([]byte(fmt.Sprintf("%s:%s", message.Salt, r.token)))
+	hash.Write([]byte(fmt.Sprintf("%s:%s", message.Salt, token)))
 
 	if message.Digest != fmt.Sprintf("%x", hash.Sum(nil)) {
 		return errIncorrectDigest
 	}
 
 	hash = sha256.New()
-	hash.Write([]byte(fmt.Sprintf("%s:%s", message.Digest, r.token)))
+	hash.Write([]byte(fmt.Sprintf("%s:%s", message.Digest, token)))
 	result := saturn.MessageHandshakeResult{
 		Digest: fmt.Sprintf("%x", hash.Sum(nil)),
 	}
@@ -366,11 +369,13 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 	}
 
 	if srr.Error == nil {
-		r.Log().Info("registered node %s in cluster %q (serving meta-process: %s)", message.Node, message.Cluster, mp)
+		r.Log().
+			Info("registered node %s in cluster %q (serving meta-process: %s)", message.Node, message.Cluster, mp)
 		for _, appRoute := range message.RegisterRoutes.ApplicationRoutes {
 			if appRoute.Node != message.Node {
-				r.Log().Error("unable to register application route: node name mismatch (exp: %s, got: %s)",
-					message.Node, appRoute.Node)
+				r.Log().
+					Error("unable to register application route: node name mismatch (exp: %s, got: %s)",
+						message.Node, appRoute.Node)
 				continue
 			}
 			r.handleRegisterApplication(appRoute, message.Cluster)
@@ -412,13 +417,15 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 }
 
 func (r *Registrar) handleRegisterProxy(route gen.ProxyRoute, cluster string) error {
-	r.Log().Info("registered proxy route to %s via node %s in cluster %q", route.To, route.Proxy, cluster)
+	r.Log().
+		Info("registered proxy route to %s via node %s in cluster %q", route.To, route.Proxy, cluster)
 	// no reply for this message
 	return nil
 }
 
 func (r *Registrar) handleUnregisterProxy(route gen.ProxyRoute, cluster string) error {
-	r.Log().Info("unregistered proxy route to %s via node %s in cluster %q", route.To, route.Proxy, cluster)
+	r.Log().
+		Info("unregistered proxy route to %s via node %s in cluster %q", route.To, route.Proxy, cluster)
 	// no reply for this message
 	return nil
 }
@@ -432,7 +439,8 @@ func (r *Registrar) handleRegisterApplication(route gen.ApplicationRoute, cluste
 		r.Log().Error("unable to send StorageRegisterApplication: %s", err)
 		return
 	}
-	r.Log().Info("registered application %s on node %s in cluster %q", route.Name, route.Node, cluster)
+	r.Log().
+		Info("registered application %s on node %s in cluster %q", route.Name, route.Node, cluster)
 	// no reply for this message
 	return
 
@@ -453,7 +461,11 @@ func (r *Registrar) handleUnregisterApplication(name gen.Atom, node gen.Atom, cl
 	return
 }
 
-func (r *Registrar) handleResolve(mp gen.Alias, message saturn.MessageResolve, cluster string) error {
+func (r *Registrar) handleResolve(
+	mp gen.Alias,
+	message saturn.MessageResolve,
+	cluster string,
+) error {
 	// TODO
 	r.Log().Debug("resolve request: %s", message.Name)
 	result := saturn.MessageResolveResult{
@@ -479,7 +491,11 @@ func (r *Registrar) handleResolve(mp gen.Alias, message saturn.MessageResolve, c
 	return r.SendAlias(mp, reply)
 }
 
-func (r *Registrar) handleResolveProxy(id gen.Alias, message saturn.MessageResolveProxy, cluster string) error {
+func (r *Registrar) handleResolveProxy(
+	id gen.Alias,
+	message saturn.MessageResolveProxy,
+	cluster string,
+) error {
 	// TODO
 	r.Log().Debug("resolve proxy request: %s", message.Name)
 	return nil

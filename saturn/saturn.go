@@ -3,11 +3,10 @@ package main
 import (
 	"flag"
 
-	"ergo.services/logger/colored"
-
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
+	"ergo.services/logger/colored"
 
 	"ergo.services/tools/saturn/registrar"
 )
@@ -22,7 +21,7 @@ var (
 func init() {
 	flag.StringVar(&OptionNodeName, "name", "saturn@localhost", "node name")
 	flag.StringVar(&OptionConfigPath, "path", ".", "path to the config file 'saturn.yaml'")
-	flag.UintVar(&OptionPort, "port", 9944, "port number for the registrar service")
+	flag.UintVar(&OptionPort, "port", 4499, "port number for the registrar service")
 	flag.StringVar(&OptionHost, "host", "", "host name for the registrar service")
 
 }
@@ -55,7 +54,10 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	options.Log.Loggers = append(options.Log.Loggers, gen.Logger{Name: "colored", Logger: loggercolored})
+	options.Log.Loggers = append(
+		options.Log.Loggers,
+		gen.Logger{Name: "colored", Logger: loggercolored},
+	)
 
 	options.Network.Mode = gen.NetworkModeDisabled
 	options.Version = Version

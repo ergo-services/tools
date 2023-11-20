@@ -27,8 +27,8 @@ func (sup *RegistrarSup) Init(args ...any) (act.SupervisorSpec, error) {
 			Factory: factoryStorage,
 		},
 		{
-			Name:    "control",
-			Factory: factoryControl,
+			Name:    "registrar",
+			Factory: factoryRegistrar,
 		},
 	}
 

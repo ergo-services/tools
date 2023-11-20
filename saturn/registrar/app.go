@@ -24,6 +24,7 @@ func (app *RegistrarApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, 
 	env := make(map[gen.Env]any)
 	env[ENV_CONFIG_PATH] = app.options.ConfigPath
 	env[ENV_REGISTRAR_PORT] = app.options.RegistrarPort
+	env[ENV_REGISTRAR_HOST] = app.options.RegistrarHost
 
 	return gen.ApplicationSpec{
 		Name:        "registrar_app",

@@ -1,14 +1,18 @@
 package registrar
 
-import "ergo.services/ergo/gen"
+import (
+	"ergo.services/ergo/gen"
+)
 
 const (
 	NameRegistrar gen.Atom = "registrar"
 	NameConfig    gen.Atom = "config"
 	NameStorage   gen.Atom = "storage"
 
-	ENV_CONFIG_PATH    gen.Env = "config_path"
-	ENV_REGISTRAR_PORT gen.Env = "registrar_port"
+	ENV_CONFIG_PATH     gen.Env = "config_path"
+	ENV_REGISTRAR_PORT  gen.Env = "registrar_port"
+	ENV_REGISTRAR_HOST  gen.Env = "registrar_host"
+	ENV_REGISTRAR_TOKEN gen.Env = "registrar_token"
 )
 
 type StorageRegister struct {

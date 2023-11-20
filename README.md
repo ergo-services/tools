@@ -36,3 +36,4 @@ Tools that make your life easier working with Ergo Framework [https://github.com
   `go install ergo.services/tools/saturn@latest`
 
   Doc: https://docs.ergo.services/tools/saturn
+

@@ -12,14 +12,12 @@ import (
 )
 
 var (
-	OptionNodeName   string
 	OptionConfigPath string
 	OptionPort       uint
 	OptionHost       string
 )
 
 func init() {
-	flag.StringVar(&OptionNodeName, "name", "saturn@localhost", "node name")
 	flag.StringVar(&OptionConfigPath, "path", ".", "path to the config file 'saturn.yaml'")
 	flag.UintVar(&OptionPort, "port", 4499, "port number for the registrar service")
 	flag.StringVar(&OptionHost, "host", "", "host name for the registrar service")
@@ -62,7 +60,7 @@ func main() {
 	options.Network.Mode = gen.NetworkModeDisabled
 	options.Version = Version
 
-	node, err := ergo.StartNode(gen.Atom(OptionNodeName), options)
+	node, err := ergo.StartNode("saturn@localhost", options)
 	if err != nil {
 		panic(err)
 	}

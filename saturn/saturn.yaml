@@ -3,6 +3,7 @@
 #
 Saturn:
   Token: "IwOBhgAEAGzPtkvugDBhYCS7P1"
+  # an empty certificate value causes a self-signed certificate to be used
   Certificate:
     Fullchain.file:
     Private.file:

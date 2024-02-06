@@ -1,14 +1,16 @@
 module ergo.services/tools
 
-replace ergo.services/ergo => /home/taras/devel/ergo.services/ergo3
+replace ergo.services/ergo => ../ergo
 
-replace ergo.services/registrar/saturn => /home/taras/devel/ergo.services/registrar/saturn
+replace ergo.services/registrar/saturn => ../registrar/saturn
 
-//github.com/ergo-services/ergo3 v0.0.0-20231025111759-115fe4227255
+replace ergo.services/application/observer => ../application/observer
 
-replace ergo.services/application/observer => github.com/ergo-services/application/observer v0.0.0-20231019185923-7272d747bb77
+replace ergo.services/meta/websocket => ../meta/websocket
 
-replace ergo.services/meta/websocket => github.com/ergo-services/meta/websocket v0.0.0-20231025193935-1a251d98d2ce
+replace ergo.services/logger/colored => ../logger/colored
+
+replace ergo.services/logger/rotate => ../logger/rotate
 
 go 1.20
 
@@ -36,7 +38,3 @@ require (
 	golang.org/x/sys v0.10.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace ergo.services/logger/colored => github.com/ergo-services/logger/colored v0.0.0-20231019185545-a4ca01f1fb7f
-
-replace ergo.services/logger/rotate => github.com/ergo-services/logger/rotate v0.0.0-20231019185545-a4ca01f1fb7f

@@ -55,12 +55,6 @@ func main() {
 	var options gen.NodeOptions
 
 	flag.Parse()
-	{{ if index .Params "cloud" }}
-	cloudOptions := cloud.Options{
-		Cluster: OptionCloudClusterName,
-		Cookie: OptionCloudClusterCookie,
-	}
-	{{ end -}}
 
 	{{ if index .Params "applications" }}
 	// create applications that must be started

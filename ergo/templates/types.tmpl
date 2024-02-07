@@ -1,8 +1,28 @@
 package {{ .Package }}
 
+import (
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/net/edf"
+)
+
 {{ range .Children -}}
 type {{ .Name }} struct{
 	// Add your fields
 }
 {{ end -}}
 
+func init() {
+	types := []any{
+        {{ range .Children -}}
+        {{ .Name }}{},
+        {{ end -}}
+	}
+
+	for _, t := range types {
+		err := edf.RegisterTypeOf(t)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		panic(err)
+	}
+}

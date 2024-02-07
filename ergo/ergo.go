@@ -35,17 +35,16 @@ func init() {
 	flag.Var(&OptionInit, "init", "Node name. Available params: tls, module")
 	flag.StringVar(&OptionPath, "path", ".", "Set location")
 
-	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized. Available params: mode")
+	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized (example: MyApp). Available params: mode")
 	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, strategy")
 
 	flag.Var(&OptionWithActor, "with-actor", "Add actor")
-	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, tls")
+	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, tls, websocket")
 	flag.Var(&OptionWithTCP, "with-tcp", "Add TCP-server. Available params: host, port, tls")
 	flag.Var(&OptionWithUDP, "with-udp", "Add UDP-server. Available params: host, port")
 	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers. Available params: size")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
-	flag.StringVar(&OptionWithCloud, "with-cloud", "", "Enable cloud with given cluster name")
 
 	flag.BoolVar(&OptionWithObserver, "with-observer", false, "Add Observer application")
 
@@ -101,19 +100,6 @@ func main() {
 		ext_applications = append(ext_applications, observer)
 	}
 
-	// node options - cloud
-	if OptionWithCloud != "" {
-		optionNode.Params["cloud"] = OptionWithCloud
-		cloud := &Option{
-			Name:   "App",
-			LoName: "cloud",
-			Params: make(map[string]any),
-		}
-		cloud.Params["import"] = "ergo.services/application/cloud"
-		cloud.Params["args"] = "cloudOptions"
-		ext_applications = append(ext_applications, cloud)
-	}
-
 	if len(ext_applications) > 0 {
 		optionNode.Params["ext_applications"] = ext_applications
 	}
@@ -135,6 +121,7 @@ func main() {
 	}
 
 	fmt.Printf("Generating project %q...\n", dir)
+
 	for _, l := range list {
 		for _, option := range *l {
 			if err := generate(option); err != nil {

@@ -3,7 +3,6 @@
 ### Generated with
  - Types for the network messaging: {{ index .Params "optionTypes" }}
  - Enabled Observer: {{ index .Params "optionObserver"}}
- - Enabled Cloud: {{ index .Params "optionCloud"}}
  {{- if index .Params "loggers" }}
  - Loggers: {{- range index .Params "loggers" }} {{ .Name }}{{ end }}
  {{ end }}
@@ -49,6 +48,6 @@ This project has been generated with the `ergo` tool. To install this tool, use 
 
 `$ go install ergo.services/tools/ergo@latest`
 
-Below the command was used to generate this project:
+Below the command that was used to generate this project:
 
-`$ {{ index .Params "args" }}`
+```$ {{ index .Params "args" }}```

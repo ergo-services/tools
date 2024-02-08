@@ -26,7 +26,6 @@ var (
 	OptionWithLogger listOptions
 
 	OptionWithObserver bool
-	OptionWithCloud    string
 
 	loggers map[string]string
 )
@@ -179,10 +178,6 @@ func main() {
 	optionReadme.Params["loggers"] = OptionWithLogger
 
 	optionReadme.Params["optionObserver"] = OptionWithObserver
-	optionReadme.Params["optionCloud"] = false
-	if OptionWithCloud != "" {
-		optionReadme.Params["optionCloud"] = "true"
-	}
 
 	optionReadme.Params["optionTypes"] = "false"
 	if len(OptionWithMsg) > 0 {
@@ -192,7 +187,7 @@ func main() {
 	cmdargs := []string{}
 	for _, arg := range os.Args {
 		if strings.ContainsAny(arg, "{},") {
-			arg = fmt.Sprintf("%q", arg)
+			arg = fmt.Sprintf("'%s'", arg)
 		}
 		cmdargs = append(cmdargs, arg)
 	}

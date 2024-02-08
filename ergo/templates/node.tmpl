@@ -2,12 +2,7 @@ package {{.Package}}
 
 import (
 	"flag"
-	{{- if index .Params "rotate" }}
 	"time"
-	{{ end -}}
-	{{- if index .Params "types" }}
-	//"{{ index .Params "module" }}"
-	{{ end -}}
 
 	{{- range index .Params "applications" }}
 	"{{- index $.Params "module" }}/apps/{{ .LoName }}"
@@ -31,10 +26,6 @@ import (
 var (
 	OptionNodeName   string
 	OptionNodeCookie string
-	{{ if index .Params "cloud" }}
-	OptionCloudClusterName   string
-	OptionCloudClusterCookie string
-	{{ end }}
 )
 
 func init() {
@@ -44,11 +35,6 @@ func init() {
 	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@localhost", "node name")
 	{{ end -}}
 	flag.StringVar(&OptionNodeCookie, "cookie", lib.RandomString(16), "a secret cookie for the network messaging")
-	{{ if index .Params "cloud" }}
-	// cloud options
-	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{ index .Params "cloud" }}", "cloud cluster name")
-	flag.StringVar(&OptionCloudClusterCookie, "cloud-cookie", "", "cloud cluster cookie")
-	{{ end }}
 }
 
 func main() {
@@ -77,7 +63,7 @@ func main() {
 	options.Log.DefaultLogger.Disable = true
 	{{ range index .Params "loggers" }}
 	// add logger "{{ .Name }}".
-	logger{{ .Name }}, err := {{ .Name }}.CreateLogger({{ .Name }}.Options{})
+	logger{{ .Name }}, err := {{ .Name }}.CreateLogger({{ .Name }}.Options{TimeFormat: time.DateTime})
 	if err != nil {
 		panic(err)
 	}

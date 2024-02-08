@@ -188,7 +188,15 @@ func main() {
 	if len(OptionWithMsg) > 0 {
 		optionReadme.Params["optionTypes"] = "true"
 	}
-	optionReadme.Params["args"] = strings.Join(os.Args, " ")
+
+	cmdargs := []string{}
+	for _, arg := range os.Args {
+		if strings.ContainsAny(arg, "{},") {
+			arg = fmt.Sprintf("%q", arg)
+		}
+		cmdargs = append(cmdargs, arg)
+	}
+	optionReadme.Params["args"] = strings.Join(cmdargs, " ")
 
 	if err := generate(&optionReadme); err != nil {
 		fmt.Printf("error: %s\n", err)

@@ -137,7 +137,7 @@ func (t *{{ .Name }}) HandleEvent(message gen.MessageEvent) error {
 
 
 // HandleInspect invoked on the request made with gen.Process.Inspect(...)
-func (t *{{ .Name }}) HandleInspect(from gen.PID) map[string]string {
+func (t *{{ .Name }}) HandleInspect(from gen.PID, item ...string) map[string]string {
 	t.Log().Info("got inspect request from %s", from)
 	return nil
 }

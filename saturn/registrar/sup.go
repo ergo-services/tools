@@ -79,7 +79,7 @@ func (sup *RegistrarSup) Terminate(reason error) {
 }
 
 // HandleInspect invoked on the request made with gen.Process.Inspect(...)
-func (sup *RegistrarSup) HandleInspect(from gen.PID) map[string]string {
+func (sup *RegistrarSup) HandleInspect(from gen.PID, item ...string) map[string]string {
 	sup.Log().Info("supervisor got inspect request from %s", from)
 	return nil
 }

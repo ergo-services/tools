@@ -53,7 +53,6 @@ type checkRegistration struct {
 
 // Init invoked on a start this process.
 func (r *Registrar) Init(args ...any) error {
-	fmt.Println("ENVS", r.Node().EnvList())
 	vport, _ := r.Env(ENV_REGISTRAR_PORT)
 	port, _ := vport.(uint16)
 	vhost, _ := r.Env(ENV_REGISTRAR_HOST)

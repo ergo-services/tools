@@ -1,9 +1,9 @@
-ergo.services/application v0.0.0-20240221071055-798d2dc271e5 h1:pZTKfh+XRyVtdA58qwxmE3zJCIDnFi2e8YnR2C0hSmc=
-ergo.services/application v0.0.0-20240221071055-798d2dc271e5/go.mod h1:5DXFImRmcKuIP7NVdLFuypC2gk0UaOJ9u4ZUUhy+KOs=
-ergo.services/ergo v1.999.225-0.20240221070140-c469b8ebaaab h1:sNik6yXHg9bOin7jYwTyiJ/ceTGsXwgOuG2YFvkJUJs=
-ergo.services/ergo v1.999.225-0.20240221070140-c469b8ebaaab/go.mod h1:bLQ6PoO6Mz/8gVuzvPv3xfMfo1P9w6rZV1WnMXMeMdg=
-ergo.services/logger v0.0.0-20240211195646-53a653f65fa7 h1:WaKFMnSXnbDOIgl4fuv1HflmMtOz0GgnSq+sw8HzJNM=
-ergo.services/logger v0.0.0-20240211195646-53a653f65fa7/go.mod h1:XapiUXlJsTKPgDuYtfYeDTT9w65LNGrU06BqkRKFoWk=
+ergo.services/application v0.0.0-20240327063935-8cc7eda2bf96 h1:q/rOvICfBSwf9gAydWZUZrm/lAb+481HHoBQ8rEELYs=
+ergo.services/application v0.0.0-20240327063935-8cc7eda2bf96/go.mod h1:4MEZ7qtLg4mIETN15E3hpseWI1wEexOKE2NfgPL3xK4=
+ergo.services/ergo v1.999.225-0.20240326181621-f76977371f6b h1:AMfw5AgiN6S+IRWxDo2iFbqtJKBYDFToBYdGV/kuujY=
+ergo.services/ergo v1.999.225-0.20240326181621-f76977371f6b/go.mod h1:bLQ6PoO6Mz/8gVuzvPv3xfMfo1P9w6rZV1WnMXMeMdg=
+ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e h1:pWnzT6A/dn/vF5qwr9RwY0dXYNaY3X8XQzTZUDXLjKw=
+ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e/go.mod h1:XapiUXlJsTKPgDuYtfYeDTT9w65LNGrU06BqkRKFoWk=
 ergo.services/meta v0.0.0-20240221070545-d828c9b7f13e h1:YbcZdXkFjf3TQoTfbA4l/Df2lhfvuKYT/XaRzk5ygWM=
 ergo.services/meta v0.0.0-20240221070545-d828c9b7f13e/go.mod h1:pdkUsher4Wyj1YXFcIylsGUgjf4dpBxi8dJlnpry88Y=
 ergo.services/registrar v0.0.0-20240221075028-84be09c83208 h1:P3XOdB6V0y4y+A78rVC62WiH4SIXhzbJKfkAmsAoDc4=

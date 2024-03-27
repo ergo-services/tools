@@ -3,9 +3,9 @@ module ergo.services/tools
 go 1.21.6
 
 require (
-	ergo.services/application v0.0.0-20240221071055-798d2dc271e5
-	ergo.services/ergo v1.999.225-0.20240221070140-c469b8ebaaab
-	ergo.services/logger v0.0.0-20240211195646-53a653f65fa7
+	ergo.services/application v0.0.0-20240327063935-8cc7eda2bf96
+	ergo.services/ergo v1.999.225-0.20240326181621-f76977371f6b
+	ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e
 	ergo.services/registrar v0.0.0-20240221075028-84be09c83208
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/knadh/koanf/parsers/yaml v0.1.0
@@ -26,3 +26,6 @@ require (
 	golang.org/x/sys v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// replace ergo.services/application => ../application
+// replace ergo.services/ergo => ../ergo

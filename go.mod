@@ -3,7 +3,7 @@ module ergo.services/tools
 go 1.21.6
 
 require (
-	ergo.services/application v0.0.0-20240327063935-8cc7eda2bf96
+	ergo.services/application v0.0.0-20240328170403-a7f2111c7f36
 	ergo.services/ergo v1.999.225-0.20240326181621-f76977371f6b
 	ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e
 	ergo.services/registrar v0.0.0-20240221075028-84be09c83208

@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 
 	"ergo.services/application/observer"
 	"ergo.services/ergo"
@@ -12,15 +13,18 @@ import (
 )
 
 var (
-	OptionNodeName     string
 	OptionNodeCookie   string
 	OptionObserverPort uint
+	OptionObserverHost string
+	OptionDebug        bool
+	cookie             string
 )
 
 func init() {
-	flag.StringVar(&OptionNodeName, "name", "observer@localhost", "Observer node name")
-	flag.StringVar(&OptionNodeCookie, "cookie", lib.RandomString(32), "a secret cookie for the network messaging")
-	flag.UintVar(&OptionObserverPort, "port", uint(observer.DefaultPort), "Web UI port number")
+	flag.StringVar(&OptionNodeCookie, "cookie", "", "default cookie for making connection")
+	flag.UintVar(&OptionObserverPort, "port", uint(observer.DefaultPort), "web UI port number")
+	flag.StringVar(&OptionObserverHost, "host", "localhost", "web UI hostname")
+	flag.BoolVar(&OptionDebug, "debug", false, "enable debug mode")
 }
 
 func main() {
@@ -30,11 +34,19 @@ func main() {
 			observer.CreateApp(observer.Options{
 				Standalone: true,
 				Port:       uint16(OptionObserverPort),
+				Host:       OptionObserverHost,
 			}),
 		},
 	}
 
-	options.Log.Level = gen.LogLevelTrace
+	if envCookie := os.Getenv("COOKIE"); envCookie != "" {
+		cookie = envCookie
+		OptionNodeCookie = envCookie
+	}
+
+	if OptionDebug {
+		options.Log.Level = gen.LogLevelDebug
+	}
 	options.Network.Cookie = OptionNodeCookie
 	options.Network.InsecureSkipVerify = true
 	options.Network.Mode = gen.NetworkModeHidden
@@ -44,5 +56,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	if OptionNodeCookie != cookie {
+		n.Log().Warning("it is more secure to use COOKIE environment variable to set cookie value")
+	}
+	n.Log().Info("open http://%s:%d to inspect nodes", OptionObserverHost, OptionObserverPort)
 	n.Wait()
 }

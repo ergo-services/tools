@@ -51,13 +51,16 @@ func main() {
 	options.Network.InsecureSkipVerify = true
 	options.Network.Mode = gen.NetworkModeHidden
 
+	// disable all network features
+	options.Network.Flags.Enable = true
+
 	name := fmt.Sprintf("observer-%s@localhost", lib.RandomString(6))
 	n, err := node.Start(gen.Atom(name), options, ergo.FrameworkVersion)
 	if err != nil {
 		panic(err)
 	}
 	if OptionNodeCookie != cookie {
-		n.Log().Warning("it is more secure to use COOKIE environment variable to set cookie value")
+		n.Log().Warning("it is more secure to use COOKIE environment variable to set default cookie")
 	}
 	n.Log().Info("open http://%s:%d to inspect nodes", OptionObserverHost, OptionObserverPort)
 	n.Wait()

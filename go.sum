@@ -1,7 +1,7 @@
-ergo.services/application v0.0.0-20240403165818-f0672fd496e5 h1:7dpY0+VkoCgwF7d0f1fS1LLeyZv4h37poyD0vtAtpDo=
-ergo.services/application v0.0.0-20240403165818-f0672fd496e5/go.mod h1:+qWbaorrQZ61HDAiLF272fTfDULF/Wmvs1L2pPcFUw8=
-ergo.services/ergo v1.999.225-0.20240403054331-2d12f5a5fee1 h1:e3jCqeSy2gagKPiYA/Y/r0ZyGYlJ7vPkthvtbPpgXds=
-ergo.services/ergo v1.999.225-0.20240403054331-2d12f5a5fee1/go.mod h1:bLQ6PoO6Mz/8gVuzvPv3xfMfo1P9w6rZV1WnMXMeMdg=
+ergo.services/application v0.0.0-20240403213134-cab6e328c706 h1:a9C3V6mbzafKTyQJX6ITrfQ5q4fo/hixAHViaGq3mD8=
+ergo.services/application v0.0.0-20240403213134-cab6e328c706/go.mod h1:FhGsrhliwRWGYQWUi62qzpOL1so/XUUq1EBO6QN5424=
+ergo.services/ergo v1.999.225-0.20240403212922-ba4161e0976d h1:kp4xFnCxGFRbZHbMjevtJO1CN0QcBejVA+oiCmX4anc=
+ergo.services/ergo v1.999.225-0.20240403212922-ba4161e0976d/go.mod h1:bLQ6PoO6Mz/8gVuzvPv3xfMfo1P9w6rZV1WnMXMeMdg=
 ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e h1:pWnzT6A/dn/vF5qwr9RwY0dXYNaY3X8XQzTZUDXLjKw=
 ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e/go.mod h1:XapiUXlJsTKPgDuYtfYeDTT9w65LNGrU06BqkRKFoWk=
 ergo.services/meta v0.0.0-20240221070545-d828c9b7f13e h1:YbcZdXkFjf3TQoTfbA4l/Df2lhfvuKYT/XaRzk5ygWM=

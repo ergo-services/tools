@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"ergo.services/application/observer"
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 	"ergo.services/ergo/node"
+	"ergo.services/logger/colored"
 )
 
 var (
@@ -53,6 +55,16 @@ func main() {
 
 	// disable all network features
 	options.Network.Flags.Enable = true
+
+	// replace default logger by 'colored'
+	options.Log.DefaultLogger.Disable = true
+	loggercolored, err := colored.CreateLogger(colored.Options{
+		TimeFormat: time.DateTime,
+	})
+	if err != nil {
+		panic(err)
+	}
+	options.Log.Loggers = append(options.Log.Loggers, gen.Logger{Name: "cl", Logger: loggercolored})
 
 	name := fmt.Sprintf("observer-%s@localhost", lib.RandomString(6))
 	n, err := node.Start(gen.Atom(name), options, ergo.FrameworkVersion)

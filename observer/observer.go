@@ -66,6 +66,9 @@ func main() {
 	}
 	options.Log.Loggers = append(options.Log.Loggers, gen.Logger{Name: "cl", Logger: loggercolored})
 
+	observer.Version.Name = "Observer Tool"
+	options.Version = observer.Version
+
 	name := fmt.Sprintf("observer-%s@localhost", lib.RandomString(6))
 	n, err := node.Start(gen.Atom(name), options, ergo.FrameworkVersion)
 	if err != nil {

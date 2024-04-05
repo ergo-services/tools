@@ -15,15 +15,15 @@ import (
 )
 
 var (
-	OptionNodeCookie   string
-	OptionObserverPort uint
-	OptionObserverHost string
-	OptionDebug        bool
-	cookie             string
+	OptionDefaultCookie string
+	OptionObserverPort  uint
+	OptionObserverHost  string
+	OptionDebug         bool
+	cookie              string
 )
 
 func init() {
-	flag.StringVar(&OptionNodeCookie, "cookie", "", "default cookie for making connection")
+	flag.StringVar(&OptionDefaultCookie, "cookie", "", "default cookie for making connection")
 	flag.UintVar(&OptionObserverPort, "port", uint(observer.DefaultPort), "web UI port number")
 	flag.StringVar(&OptionObserverHost, "host", "localhost", "web UI hostname")
 	flag.BoolVar(&OptionDebug, "debug", false, "enable debug mode")
@@ -43,13 +43,13 @@ func main() {
 
 	if envCookie := os.Getenv("COOKIE"); envCookie != "" {
 		cookie = envCookie
-		OptionNodeCookie = envCookie
+		OptionDefaultCookie = envCookie
 	}
 
 	if OptionDebug {
 		options.Log.Level = gen.LogLevelDebug
 	}
-	options.Network.Cookie = OptionNodeCookie
+	options.Network.Cookie = lib.RandomString(32)
 	options.Network.InsecureSkipVerify = true
 	options.Network.Mode = gen.NetworkModeHidden
 
@@ -74,7 +74,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if OptionNodeCookie != cookie {
+	if OptionDefaultCookie != cookie {
 		n.Log().Warning("it is more secure to use COOKIE environment variable to set default cookie")
 	}
 	n.Log().Info("open http://%s:%d to inspect nodes", OptionObserverHost, OptionObserverPort)

@@ -1,5 +1,5 @@
-ergo.services/application v0.0.0-20240404200509-83d168cc6898 h1:sZ6r0CoA4bSROKpkEgcDsHU8kwLwxA65GP3AZamp7fU=
-ergo.services/application v0.0.0-20240404200509-83d168cc6898/go.mod h1:FhGsrhliwRWGYQWUi62qzpOL1so/XUUq1EBO6QN5424=
+ergo.services/application v0.0.0-20240405152109-9f7039cd1f82 h1:Kvz3G6lw/worrwzSrdkA15/7UyWu58AUWVqc9xeTQQ4=
+ergo.services/application v0.0.0-20240405152109-9f7039cd1f82/go.mod h1:FhGsrhliwRWGYQWUi62qzpOL1so/XUUq1EBO6QN5424=
 ergo.services/ergo v1.999.225-0.20240403212922-ba4161e0976d h1:kp4xFnCxGFRbZHbMjevtJO1CN0QcBejVA+oiCmX4anc=
 ergo.services/ergo v1.999.225-0.20240403212922-ba4161e0976d/go.mod h1:bLQ6PoO6Mz/8gVuzvPv3xfMfo1P9w6rZV1WnMXMeMdg=
 ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e h1:pWnzT6A/dn/vF5qwr9RwY0dXYNaY3X8XQzTZUDXLjKw=

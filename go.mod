@@ -3,8 +3,8 @@ module ergo.services/tools
 go 1.21.6
 
 require (
-	ergo.services/application v0.0.0-20240418214816-6c82b5ee9382
-	ergo.services/ergo v1.999.225-0.20240403212922-ba4161e0976d
+	ergo.services/application v0.0.0-20240603041555-11c33dbf0474
+	ergo.services/ergo v1.999.225-0.20240603041303-2ed097599aea
 	ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e
 	ergo.services/registrar v0.0.0-20240221075028-84be09c83208
 	github.com/fsnotify/fsnotify v1.7.0

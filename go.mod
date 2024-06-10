@@ -4,8 +4,8 @@ go 1.21.6
 
 require (
 	ergo.services/application v0.0.0-20240603041555-11c33dbf0474
-	ergo.services/ergo v1.999.225-0.20240603041303-2ed097599aea
-	ergo.services/logger v0.0.0-20240221211214-98de4c9ff50e
+	ergo.services/ergo v1.999.225-0.20240606191206-1e15b2a6774b
+	ergo.services/logger v0.0.0-20240610165247-db8c75f51128
 	ergo.services/registrar v0.0.0-20240221075028-84be09c83208
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/knadh/koanf/parsers/yaml v0.1.0

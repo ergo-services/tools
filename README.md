@@ -35,5 +35,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   `go install ergo.services/tools/saturn@latest`
 
+For commercial or production purposes, it is necessary to purchase a subscription. [Buy licence](https://github.com/sponsors/ergo-services).
+
   Doc: https://docs.ergo.services/tools/saturn
 

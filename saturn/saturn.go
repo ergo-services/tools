@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"time"
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
@@ -48,7 +49,9 @@ func main() {
 	options.Log.DefaultLogger.Disable = true
 	options.Log.Level = gen.LogLevelDebug
 
-	loggercolored, err := colored.CreateLogger(colored.Options{})
+	loggercolored, err := colored.CreateLogger(colored.Options{
+		TimeFormat: time.DateTime,
+	})
 	if err != nil {
 		panic(err)
 	}

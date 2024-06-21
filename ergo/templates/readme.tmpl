@@ -2,7 +2,7 @@
 
 ### Generated with
  - Types for the network messaging: {{ index .Params "optionTypes" }}
- - Enabled Observer: {{ index .Params "optionObserver"}}
+ - Enabled Observer (http://localhost:9911): {{ index .Params "optionObserver"}}
  {{- if index .Params "loggers" }}
  - Loggers: {{- range index .Params "loggers" }} {{ .Name }}{{ end }}
  {{ end }}

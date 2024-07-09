@@ -59,14 +59,14 @@ func (r *Registrar) Init(args ...any) error {
 	host, _ := vhost.(string)
 
 	// create meta tcp server
-	tcpOptions := meta.TCPOptions{
+	tcpOptions := meta.TCPServerOptions{
 		Port:            port,
 		Host:            host,
 		CertManager:     r.Node().CertManager(),
 		KeepAlivePeriod: time.Second * 3,
 	}
 
-	metatcp, err := meta.CreateTCP(tcpOptions)
+	metatcp, err := meta.CreateTCPServer(tcpOptions)
 	if err != nil {
 		r.Log().Error("unable to create TCP server meta-process: %s", err)
 		return err

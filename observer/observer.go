@@ -19,6 +19,7 @@ var (
 	OptionObserverPort  uint
 	OptionObserverHost  string
 	OptionDebug         bool
+	OptionVersion       bool
 	cookie              string
 )
 
@@ -27,6 +28,7 @@ func init() {
 	flag.UintVar(&OptionObserverPort, "port", uint(observer.DefaultPort), "web UI port number")
 	flag.StringVar(&OptionObserverHost, "host", "localhost", "web UI hostname")
 	flag.BoolVar(&OptionDebug, "debug", false, "enable debug mode")
+	flag.BoolVar(&OptionVersion, "version", false, "print observer version")
 }
 
 func main() {
@@ -68,6 +70,11 @@ func main() {
 
 	observer.Version.Name = "Observer Tool"
 	options.Version = observer.Version
+
+	if OptionVersion {
+		fmt.Println(options.Version)
+		return
+	}
 
 	name := fmt.Sprintf("observer-%s@localhost", lib.RandomString(6))
 	n, err := node.Start(gen.Atom(name), options, ergo.FrameworkVersion)

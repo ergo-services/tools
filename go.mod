@@ -1,6 +1,6 @@
 module ergo.services/tools
 
-go 1.21.6
+go 1.20
 
 require (
 	ergo.services/application v0.0.0-20240709161437-214a9ae6a3e9

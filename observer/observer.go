@@ -20,7 +20,6 @@ var (
 	OptionObserverHost  string
 	OptionDebug         bool
 	OptionVersion       bool
-	cookie              string
 )
 
 func init() {
@@ -32,6 +31,7 @@ func init() {
 }
 
 func main() {
+	var insecureCookie bool
 	flag.Parse()
 	options := gen.NodeOptions{
 		Applications: []gen.ApplicationBehavior{
@@ -44,14 +44,20 @@ func main() {
 	}
 
 	if envCookie := os.Getenv("COOKIE"); envCookie != "" {
-		cookie = envCookie
 		OptionDefaultCookie = envCookie
+	} else {
+		if OptionDefaultCookie != "" {
+			insecureCookie = true
+		} else {
+			// use random cookie
+			OptionDefaultCookie = lib.RandomString(32)
+		}
 	}
 
 	if OptionDebug {
 		options.Log.Level = gen.LogLevelDebug
 	}
-	options.Network.Cookie = lib.RandomString(32)
+	options.Network.Cookie = OptionDefaultCookie
 	options.Network.InsecureSkipVerify = true
 	options.Network.Mode = gen.NetworkModeHidden
 
@@ -81,7 +87,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if OptionDefaultCookie != cookie {
+	if insecureCookie {
 		n.Log().Warning("it is more secure to use COOKIE environment variable to set default cookie")
 	}
 	n.Log().Info("open http://%s:%d to inspect nodes", OptionObserverHost, OptionObserverPort)

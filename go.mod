@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	ergo.services/application v0.0.0-20240715054430-2a6a17c218a8
-	ergo.services/ergo v1.999.225-0.20240715061636-28dd9e449375
+	ergo.services/ergo v1.999.225-0.20240724160904-846d80677214
 	ergo.services/logger v0.0.0-20240709160717-c17651ed15f4
 	ergo.services/registrar v0.0.0-20240709161316-0d5c31d0b449
 	github.com/fsnotify/fsnotify v1.7.0

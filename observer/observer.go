@@ -27,7 +27,7 @@ func init() {
 	flag.UintVar(&OptionObserverPort, "port", uint(observer.DefaultPort), "web UI port number")
 	flag.StringVar(&OptionObserverHost, "host", "localhost", "web UI hostname")
 	flag.BoolVar(&OptionDebug, "debug", false, "enable debug mode")
-	flag.BoolVar(&OptionVersion, "version", false, "print observer version")
+	flag.BoolVar(&OptionVersion, "version", false, "print version")
 }
 
 func main() {

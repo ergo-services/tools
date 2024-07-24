@@ -2,6 +2,8 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"runtime/debug"
 	"time"
 
 	"ergo.services/ergo"
@@ -16,12 +18,16 @@ var (
 	OptionConfigPath string
 	OptionPort       uint
 	OptionHost       string
+	OptionDebug      bool
+	OptionVersion    bool
 )
 
 func init() {
 	flag.StringVar(&OptionConfigPath, "path", ".", "path to the config file 'saturn.yaml'")
 	flag.UintVar(&OptionPort, "port", 4499, "port number for the registrar service")
 	flag.StringVar(&OptionHost, "host", "", "host name for the registrar service")
+	flag.BoolVar(&OptionDebug, "debug", false, "enable debug mode")
+	flag.BoolVar(&OptionVersion, "version", false, "print version")
 
 }
 
@@ -29,6 +35,11 @@ func main() {
 	var options gen.NodeOptions
 
 	flag.Parse()
+
+	if OptionVersion {
+		fmt.Println(Version)
+		return
+	}
 
 	regOptions := registrar.Options{
 		ConfigPath:    OptionConfigPath,
@@ -47,7 +58,9 @@ func main() {
 	}
 	options.CertManager = gen.CreateCertManager(cert)
 	options.Log.DefaultLogger.Disable = true
-	options.Log.Level = gen.LogLevelDebug
+	if OptionDebug {
+		options.Log.Level = gen.LogLevelDebug
+	}
 
 	loggercolored, err := colored.CreateLogger(colored.Options{
 		TimeFormat: time.DateTime,
@@ -69,4 +82,16 @@ func main() {
 	}
 
 	node.Wait()
+}
+
+func init() {
+
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				Version.Commit = setting.Value
+				break
+			}
+		}
+	}
 }

@@ -19,8 +19,8 @@ Clusters:
 
   Example1: 3158
 
-  node@localhost:
-    # Configuration for the nodes with name "node@localhost" in any cluster
+  demo@localhost:
+    # Configuration for the nodes with name "demo@localhost" in any cluster
     Example: "valuee"
     # config value below overrides value of 'Example1' from the common configuration
     Example1: 3.14

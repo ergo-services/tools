@@ -368,7 +368,7 @@ func (cl *cluster) init() {
 
 func (cl *cluster) listPeers(node gen.Atom) []gen.Atom {
 	var nodes []gen.Atom
-	for p, _ := range cl.nodeRoutes {
+	for p := range cl.nodeRoutes {
 		if p == node {
 			continue
 		}

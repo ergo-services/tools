@@ -3,10 +3,10 @@ module ergo.services/tools
 go 1.20
 
 require (
-	ergo.services/application v0.0.0-20240715054430-2a6a17c218a8
-	ergo.services/ergo v1.999.225-0.20240724160904-846d80677214
-	ergo.services/logger v0.0.0-20240709160717-c17651ed15f4
-	ergo.services/registrar v0.0.0-20240709161316-0d5c31d0b449
+	ergo.services/application v0.0.0-20240807055005-75532a6dceb8
+	ergo.services/ergo v1.999.225-0.20240806171217-92f6f9df7e97
+	ergo.services/logger v0.0.0-20240807054359-80176729b270
+	ergo.services/registrar v0.0.0-20240807054827-285fde6b2dec
 	github.com/fsnotify/fsnotify v1.7.0
 	github.com/knadh/koanf/parsers/yaml v0.1.0
 	github.com/knadh/koanf/providers/file v0.1.0
@@ -14,7 +14,7 @@ require (
 )
 
 require (
-	ergo.services/meta v0.0.0-20240709160930-c3c56d783f21 // indirect
+	ergo.services/meta v0.0.0-20240807054511-a292a0f8045e // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.0.0-alpha.1 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect

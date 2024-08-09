@@ -2,7 +2,9 @@ package {{.Package}}
 
 import (
 	"flag"
+	{{ if index .Params "loggers" }}
 	"time"
+    {{ end }}
 
 	{{- range index .Params "applications" }}
 	"{{- index $.Params "module" }}/apps/{{ .LoName }}"
@@ -17,9 +19,7 @@ import (
 
 	"ergo.services/ergo"
 	"ergo.services/ergo/gen"
-	{{- if index .Params "tls" }}
 	"ergo.services/ergo/lib"
-	{{ end }}
 
 )
 

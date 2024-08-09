@@ -34,7 +34,7 @@ func init() {
 	flag.Var(&OptionInit, "init", "Node name. Available params: tls, module")
 	flag.StringVar(&OptionPath, "path", ".", "Set location")
 
-	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized (example: MyApp). Available params: mode")
+	flag.Var(&OptionWithApp, "with-app", "Add Application. Available params: mode")
 	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, strategy")
 
 	flag.Var(&OptionWithActor, "with-actor", "Add actor")
@@ -186,8 +186,8 @@ func main() {
 
 	cmdargs := []string{}
 	for _, arg := range os.Args {
-		if strings.ContainsAny(arg, "{},") {
-			arg = fmt.Sprintf("'%s'", arg)
+		if strings.ContainsAny(arg, ",") {
+			arg = fmt.Sprintf("\"%s\"", arg)
 		}
 		cmdargs = append(cmdargs, arg)
 	}

@@ -1,0 +1,54 @@
+package {{ .Package }}
+
+import (
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/meta"
+)
+func factory_{{ .Name }}UDPWorker() gen.ProcessBehavior{
+	return &{{ .Name }}UDPWorker{}
+}
+
+type {{ .Name }}UDPWorker struct {
+	act.Actor
+}
+
+// Init invoked on a start this process.
+func (w *{{ .Name }}UDPWorker) Init(args ...any) error {
+	w.Log().Info("started udp worker process in pool: %s", w.Parent())
+	return nil
+}
+
+
+// HandleMessage invoked if worker process received a message sent with gen.Process.Send(...).
+// Non-nil value of the returning error will cause termination of this process.
+// To stop this process normally, return gen.TerminateReasonNormal
+// or any other for abnormal termination.
+// Stopping the worker process causes the spawning of the new worker process by the pool process
+func (w *{{ .Name }}UDPWorker) HandleMessage(from gen.PID, message any) error {
+	switch m := message.(type) {
+	case meta.MessageUDP:
+		w.Log().Info("got udp packet from %s: %s ", m.Addr, string(m.Data))
+		m.Data = []byte("OK")
+		if err := w.SendAlias(m.ID, m); err != nil {
+			w.Log().Error("unable to send to %s: %s", m.ID, err)
+		}
+	default:
+		w.Log().Info("got unknown message from %s: %#v", from, message)
+	}
+	return nil
+}
+
+// HandleCall invoked if Actor got a synchronous request made with gen.Process.Call(...).
+// Return nil as a result to handle this request asynchronously and
+// to provide the result later using the gen.Process.SendResponse(...) method.
+func (w *{{ .Name }}UDPWorker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	w.Log().Info("udp worker received request from %s with reference %s", from, ref)
+	return gen.Atom("pong"), nil
+}
+
+
+// Terminate invoked on a termination process
+func (w *{{ .Name }}UDPWorker) Terminate(reason error) {
+	w.Log().Info("udp worker process terminated with reason: %s", reason)
+}

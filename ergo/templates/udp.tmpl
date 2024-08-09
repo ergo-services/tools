@@ -12,30 +12,30 @@ func factory_{{ .Name }}() gen.ProcessBehavior {
 
 
 type {{ .Name }} struct {
-	act.Actor
+	act.Pool
 }
 
-// Init invoked on a start this process.
-func (u *{{ .Name }}) Init(args ...any) error {
-	var options meta.UDPOptions
-
-	{{- if index .Params "port" }}
-	options.Port = {{ index .Params "port" }}
-	{{- else }}
-	options.Port = 7654 // use this port as an example
-	{{- end }}
-	{{ if index .Params "host" -}}
-	options.Host = "{{ index .Params "host" }}"
-	{{ end -}}
-
-	// we don't use options.Process so all UDP-packets will be handled by this process.
-	// for more information, see https://docs.ergo.services/meta-processes/udp
+// Init invoked on a spawn Pool for the initializing.
+func (u *{{ .Name }}) Init(args ...any) (act.PoolOptions, error) {
+    var poolOptions act.PoolOptions
+	var udpOptions meta.UDPServerOptions
 
 	// create UDP server meta-process (opens UDP-port for the listener)
-	metaudp, err := meta.CreateUDP(options)
+	{{- if index .Params "port" }}
+	udpOptions.Port = {{ index .Params "port" }}
+	{{- else }}
+	udpOptions.Port = 7654 // use this port as an example
+	{{- end }}
+	{{ if index .Params "host" -}}
+	udpOptions.Host = "{{ index .Params "host" }}"
+	{{- else }}
+	udpOptions.Host = "localhost"
+	{{ end -}}
+
+	metaudp, err := meta.CreateUDPServer(udpOptions)
 	if err != nil {
 		u.Log().Error("unable to create UDP server meta-process: %s", err)
-		return err
+		return poolOptions, err
 	}
 
 	// spawn meta process
@@ -44,29 +44,22 @@ func (u *{{ .Name }}) Init(args ...any) error {
 		u.Log().Error("unable to spawn UDP server meta-process: %s", err)
 		// we should close listening port
 		metaudp.Terminate(err)
-		return err
+		return poolOptions, err
 	}
 
-	u.Log().Info("started UDP server on %s:%d (meta-process: %s)", options.Host, options.Port, id)
-	return nil
+	u.Log().Info("started UDP server on %s:%d (meta-process: %s)", udpOptions.Host, udpOptions.Port, id)
+	u.Log().Info("you may check it with command below:")
+	u.Log().Info("   $ nc -u %s %d", udpOptions.Host, udpOptions.Port)
+    poolOptions.WorkerFactory = factory_{{ .Name }}UDPWorker
+	return poolOptions, nil
 }
 
 //
 // Methods below are optional, so you can remove those that aren't be used
 //
 
-// HandleMessage receives a message with UDP-packet.
 func (u *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
-	switch m := message.(type) {
-	case meta.MessageUDP:
-		u.Log().Info("got udp packet from %s: %s ", m.Addr, string(m.Data))
-		m.Data = []byte("OK")
-		if err := u.SendAlias(m.ID, m); err != nil {
-			u.Log().Error("unable to send to %s: %s", m.ID, err)
-		}
-	default:
-		u.Log().Info("got unknown message from %s: %#v", from, message)
-	}
+	u.Log().Info("got message from %s: %#v", from, message)
 	return nil
 }
 
@@ -81,36 +74,6 @@ func (u *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, e
 // Terminate invoked on a termination process
 func (u *{{ .Name }}) Terminate(reason error) {
 	u.Log().Info("terminated with reason: %s", reason)
-}
-
-// HandleMessageName invoked if split handling was enabled using SetSplitHandle(true)
-// and message has been sent by name
-func (u *{{ .Name }}) HandleMessageName(name gen.Atom, from gen.PID, message any) error {
-	return nil
-}
-
-// HandleMessageAlias invoked if split handling was enabled using SetSplitHandle(true)
-// and message has been sent by alias
-func (u *{{ .Name }}) HandleMessageAlias(alias gen.Alias, from gen.PID, message any) error {
-	return nil
-}
-
-// HandleCallName invoked if split handling was enabled using SetSplitHandle(true)
-// and request was made by name
-func (u *{{ .Name }}) HandleCallName(name gen.Atom, from gen.PID, ref gen.Ref, request any) (any, error) {
-	return gen.Atom("pong"), nil
-}
-
-// HandleCallAlias invoked if split handling was enabled using SetSplitHandle(true)
-// and request was made by alias
-func (u *{{ .Name }}) HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error) {
-	return gen.Atom("pong"), nil
-}
-
-// HandleLog invoked on a log message if this process was added as a logger.
-// See https://docs.ergo.services/basics/logging for more information
-func (u *{{ .Name }}) HandleLog(message gen.MessageLog) error {
-	return nil
 }
 
 // HandleEvent invoked on an event message if this process got subscribed on

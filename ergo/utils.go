@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	format "go/format"
-	"html/template"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
+	"text/template"
 )
 
 func generate(option *Option) error {

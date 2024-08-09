@@ -16,15 +16,17 @@ type {{ .Name }} struct {
 
 // Init invoked on a start this process.
 func (t *{{ .Name }}) Init(args ...any) error {
-	var options meta.TCPOptions
+	var tcpOptions meta.TCPServerOptions
 
-	{{- if index .Params "port" }}
-	options.Port = {{ index .Params "port" }}
+	{{ if index .Params "port" }}
+	tcpOptions.Port = {{ index .Params "port" }}
 	{{- else }}
-	options.Port = 7654 // use this port as an example
-	{{- end }}
+	tcpOptions.Port = 7654 // use this port as an example
+	{{- end -}}
 	{{ if index .Params "host" -}}
-	options.Host = "{{ index .Params "host" }}"
+	tcpOptions.Host = "{{ index .Params "host" }}"
+	{{- else }}
+	tcpOptions.Host = "localhost"
 	{{ end }}
 
 	// we don't use options.ProcessPool so all TCP-connections will be handled by this process.
@@ -32,15 +34,15 @@ func (t *{{ .Name }}) Init(args ...any) error {
 
 	{{ if index .Params "tls" }}
 	// enabling TLS with node's certificate
-	options.CertManager = t.Node().CertManager()
-	if options.CertManager != nil {
+	tcpOptions.CertManager = t.Node().CertManager()
+	if tcpOptions.CertManager != nil {
 		t.Log().Info("enabling TLS. you may check it with command below:")
-		t.Log().Info("   $ openssl s_client -connect %s:%d", options.Host, options.Port)
+		t.Log().Info("   $ openssl s_client -connect %s:%d", tcpOptions.Host, tcpOptions.Port)
 	}
 	{{ end }}
 
 	// create TCP server meta-process (opens TCP-port for the listener)
-	metatcp, err := meta.CreateTCP(options)
+	metatcp, err := meta.CreateTCPServer(tcpOptions)
 	if err != nil {
 		t.Log().Error("unable to create TCP server meta-process: %s", err)
 		return err
@@ -55,7 +57,9 @@ func (t *{{ .Name }}) Init(args ...any) error {
 		return err
 	}
 
-	t.Log().Info("started TCP server on %s:%d (meta-process: %s)", options.Host, options.Port, id)
+	t.Log().Info("started TCP server on %s:%d (meta-process: %s)", tcpOptions.Host, tcpOptions.Port, id)
+	t.Log().Info("you may check it with command below:")
+	t.Log().Info("   $ nc %s %d", options.Host, options.Port)
 	return nil
 }
 

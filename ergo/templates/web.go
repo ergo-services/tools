@@ -2,16 +2,21 @@ package templates
 
 import (
 	_ "embed"
-	"html/template"
+	"text/template"
 )
 
 const (
-	webTemplateActorFile = "web.tmpl"
+	webTemplatePoolFile   = "web.tmpl"
+	webTemplateWorkerFile = "web_worker.tmpl"
 )
 
 //go:embed web.tmpl
-var webTemplateActorText string
+var webTemplatePoolText string
+
+//go:embed web_worker.tmpl
+var webTemplateWorkerText string
 
 var Web = []*template.Template{
-	templateInit(webTemplateActorFile, webTemplateActorText),
+	templateInit(webTemplatePoolFile, webTemplatePoolText),
+	templateInit(webTemplateWorkerFile, webTemplateWorkerText),
 }

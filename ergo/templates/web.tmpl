@@ -1,16 +1,11 @@
 package {{ .Package }}
 
 import (
-	"bytes"
-	"encoding/json"
 	"net/http"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/meta"
-	{{ if index .Params "websocket" }}
-	"ergo.services/meta/websocket"
-	{{- end }}
 )
 
 func factory_{{ .Name }}() gen.ProcessBehavior{
@@ -18,121 +13,67 @@ func factory_{{ .Name }}() gen.ProcessBehavior{
 }
 
 type {{ .Name }} struct {
-	act.Web
+	act.Pool
 }
 
 // Init invoked on a start this process.
-func (w *{{ .Name }}) Init(args ...any) (act.WebOptions, error) {
-	var options act.WebOptions
-
-	{{ if index .Params "port" }}
-	options.Port = {{ index .Params "port" }}
-	{{- else }}
-	options.Port = 9090
-	{{- end }}
-	{{- if index .Params "host" }}
-	options.Host = "{{ index .Params "host" }}"
-	{{- else }}
-	options.Host = "localhost"
-	{{- end }}
-	{{ if index .Params "tls" }}
-	// enabling TLS with node's certificate
-	options.CertManager = w.Node().CertManager()
-	{{- end }}
+func (w *{{ .Name }}) Init(args ...any) (act.PoolOptions, error) {
+	var webOptions meta.WebServerOptions
+    var poolOptions act.PoolOptions
 
 	mux := http.NewServeMux()
 
 	// create and spawn root handler meta-process.
-	// we leave meta.WebHandlerOptions.Process empty to handle HTTP-requests by this process
-	// within the HandleMessage callback. But you may want to use the process pool.
-	// see https://docs.ergo.services/actors/web for more information
 	root := meta.CreateWebHandler(meta.WebHandlerOptions{})
 	rootid, err := w.SpawnMeta(root, gen.MetaOptions{})
 	if err != nil {
-		w.Log().Error("unable to start WebHandler meta-process: %s", err)
-		return options, err
+		w.Log().Error("unable to spawn WebHandler meta-process: %s", err)
+		return poolOptions, err
 	}
+
 	// add it to the mux. you can also use middleware functions:
 	// mux.Handle("/", middleware(root))
 	mux.Handle("/", root)
+	w.Log().Info("started WebHandler to serve '/' (meta-process: %s)", rootid)
 
-	{{ if index .Params "websocket" }}
-	// create and spawn websocket handler meta-process.
-	// we leave websocket.HandlerOptions.ProcessPool empty to handle websocket-connections
-	// by this process.
-	// see https://docs.ergo.services/extra-library/meta-processes/websocket for more information
-	ws := websocket.CreateHandler(websocket.HandlerOptions{})
-	wsid, err := w.SpawnMeta(ws, gen.MetaOptions{})
-	if err != nil {
-		w.Log().Error("unable to start WebSocket handler meta-process: %s", err)
-		return options, err
-	}
-	// add it to the mux. you can use middleware function here as well:
-	// mux.Handle("/", middleware(ws))
-	mux.Handle("/ws", ws)
-	{{ end }}
-	options.Handler = mux
-
-	{{- if index .Params "tls" }}
-	if options.CertManager != nil {
-		w.Log().Info("started Web server on https://%s:%d/", options.Host, options.Port)
-	} else {
-		w.Log().Info("started Web server on http://%s:%d/", options.Host, options.Port)
-	}
+	{{ if index .Params "port" }}
+	webOptions.Port = {{ index .Params "port" }}
 	{{- else }}
-	w.Log().Info("started Web server on http://%s:%d/", options.Host, options.Port)
+	webOptions.Port = 9090
 	{{- end }}
-	w.Log().Info("    endpoint  '/'   (meta-process: %s)", rootid)
-	{{- if index .Params "websocket" }}
-	w.Log().Info("    websocket '/ws' (meta-process: %s)", wsid)
+	{{- if index .Params "host" }}
+	webOptions.Host = "{{ index .Params "host" }}"
+	{{- else }}
+	webOptions.Host = "localhost"
+	{{- end }}
+	{{ if index .Params "tls" }}
+	// enabling TLS with node's certificate
+	webOptions.CertManager = w.Node().CertManager()
 	{{- end }}
 
-	return options, nil
-}
+    webOptions.Handler = mux
 
-func (w *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
-
-	switch m := message.(type) {
-	{{- if index .Params "websocket" }}
-	//
-	// handle websocket messages
-	//
-	case websocket.MessageConnect:
-		w.Log().Info("new connection with %s. meta-process: %s", m.RemoteAddr, m.ID)
-	case websocket.MessageDisconnect:
-		w.Log().Info("disconnected. meta-process: %s", m.ID)
-	case websocket.Message:
-		w.Log().Info("got websocket message from %s", m.ID)
-
-		// send reply as a JSON message with information about this process
-		m.Body = w.info()
-		if err := w.SendAlias(m.ID, m); err != nil {
-			w.Log().Error("unable to send: %s", err)
-		}
-	{{- end }}
-	//
-	// handle HTTP-requests
-	//
-	case meta.MessageWebRequest:
-		defer m.Done()
-		w.Log().Info("got HTTP request %q", m.Request.URL.Path)
-		m.Response.Header().Set("Content-Type", "application/json")
-		// response JSON message with information about this process
-		m.Response.Write(w.info())
-	default:
-		w.Log().Info("unhandled message from %s", from)
+	webserver, err := meta.CreateWebServer(webOptions)
+	if err != nil {
+		w.Log().Error("unable to create Web server meta-process: %s", err)
+		return poolOptions, err
+	}
+	webserverid, err := w.SpawnMeta(webserver, gen.MetaOptions{})
+	if err != nil {
+		// invoke Terminate to close listening socket
+		webserver.Terminate(err)
+		return poolOptions, err
 	}
 
-	return nil
+	https := "http"
+	if webOptions.CertManager != nil {
+		https = "https"
+	}
+	w.Log().Info("started Web server %s: use %s://%s:%d/", webserverid, https, webOptions.Host, webOptions.Port)
+	w.Log().Info("you may check it with command below:")
+	w.Log().Info("   $ curl -k %s://%s:%d", https, webOptions.Host, webOptions.Port)
+
+    poolOptions.WorkerFactory = factory_{{ .Name }}WebWorker
+	return poolOptions, nil
 }
 
-func (w *{{ .Name }}) info() []byte {
-	var buf bytes.Buffer
-
-	info, _ := w.Info()
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	enc.Encode(info)
-
-	return buf.Bytes()
-}

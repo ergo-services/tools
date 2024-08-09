@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"html/template"
 	"path"
 	"strings"
+	"text/template"
 )
 
 var (

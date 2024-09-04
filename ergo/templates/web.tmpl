@@ -1,86 +1,79 @@
 package {{ .Package }}
 
 import (
-	"fmt"
 	"net/http"
 
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
-	{{ if index .Params "ssl" }}
-	"crypto/tls"
-	"github.com/ergo-services/ergo/lib"
-	{{ end }}
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/meta"
 )
 
-func create{{ .Name }}() gen.WebBehavior {
+func factory_{{ .Name }}() gen.ProcessBehavior{
 	return &{{ .Name }}{}
 }
 
 type {{ .Name }} struct {
-	gen.Web
+	act.Pool
 }
 
-//
-// Mandatory callbacks
-//
-
-// InitWeb invoked on starting Web server
-func (w *{{ .Name }}) InitWeb(process *gen.WebProcess, args ...etf.Term) (gen.WebOptions, error) {
-	var options gen.WebOptions
-
-	{{- if index .Params "port" }}
-	options.Port = {{ index .Params "port" }}
-	{{- else }}
-	options.Port = 9090
-	{{- end }}
-	{{- if index .Params "host" }}
-	options.Host = "{{ index .Params "host" }}"
-	{{- else }}
-	options.Host = "localhost"
-	{{- end }}
-	{{- if index .Params "ssl" }}
-	// enable TLS with self-signed certificate
-	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} Service")
-	certUpdater := lib.CreateCertUpdater(cert)
-	tlsConfig := &tls.Config{
-		GetCertificate: certUpdater.GetCertificateFunc(),
-	}
-	options.TLS = tlsConfig
-	{{- end }}
+// Init invoked on a start this process.
+func (w *{{ .Name }}) Init(args ...any) (act.PoolOptions, error) {
+	var webOptions meta.WebServerOptions
+    var poolOptions act.PoolOptions
 
 	mux := http.NewServeMux()
-	handlerOptions := gen.WebHandlerOptions{
-		{{ if index .Params "handlers" }} NumHandlers: {{ index .Params "handlers" }}, {{ end }}
-		IdleTimeout:    10,
-		RequestTimeout: 20,
+
+	// create and spawn root handler meta-process.
+	root := meta.CreateWebHandler(meta.WebHandlerOptions{})
+	rootid, err := w.SpawnMeta(root, gen.MetaOptions{})
+	if err != nil {
+		w.Log().Error("unable to spawn WebHandler meta-process: %s", err)
+		return poolOptions, err
 	}
-	webRoot := process.StartWebHandler(create{{ .Name }}Handler(), handlerOptions)
-	mux.Handle("/", webRoot)
-	options.Handler = mux
 
-	{{- if index .Params "ssl" }}
-	fmt.Printf("Start Web server on https://%s:%d/\n", options.Host, options.Port)
+	// add it to the mux. you can also use middleware functions:
+	// mux.Handle("/", middleware(root))
+	mux.Handle("/", root)
+	w.Log().Info("started WebHandler to serve '/' (meta-process: %s)", rootid)
+
+	{{ if index .Params "port" }}
+	webOptions.Port = {{ index .Params "port" }}
 	{{- else }}
-	fmt.Printf("Start Web server on http://%s:%d/\n", options.Host, options.Port)
+	webOptions.Port = 9090
 	{{- end }}
-	return options, nil
+	{{- if index .Params "host" }}
+	webOptions.Host = "{{ index .Params "host" }}"
+	{{- else }}
+	webOptions.Host = "localhost"
+	{{- end }}
+	{{ if index .Params "tls" }}
+	// enabling TLS with node's certificate
+	webOptions.CertManager = w.Node().CertManager()
+	{{- end }}
+
+    webOptions.Handler = mux
+
+	webserver, err := meta.CreateWebServer(webOptions)
+	if err != nil {
+		w.Log().Error("unable to create Web server meta-process: %s", err)
+		return poolOptions, err
+	}
+	webserverid, err := w.SpawnMeta(webserver, gen.MetaOptions{})
+	if err != nil {
+		// invoke Terminate to close listening socket
+		webserver.Terminate(err)
+		return poolOptions, err
+	}
+
+	https := "http"
+	if webOptions.CertManager != nil {
+		https = "https"
+	}
+	w.Log().Info("started Web server %s: use %s://%s:%d/", webserverid, https, webOptions.Host, webOptions.Port)
+	w.Log().Info("you may check it with command below:")
+	w.Log().Info("   $ curl -k %s://%s:%d", https, webOptions.Host, webOptions.Port)
+
+    poolOptions.WorkerFactory = factory_{{ .Name }}WebWorker
+	return poolOptions, nil
 }
 
-//
-// Optional gen.Server's callbacks
-//
-
-// HandleWebCall this callback is invoked on ServerProcess.Call(...).
-func (w *{{ .Name }}) HandleWebCall(process *gen.WebProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	return nil, gen.ServerStatusOK
-}
-
-// HandleWebCast this callback is invoked on ServerProcess.Cast(...).
-func (w *{{ .Name }}) HandleWebCast(process *gen.WebProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
-}
-
-// HandleWebInfo this callback is invoked on Process.Send(...).
-func (w *{{ .Name }}) HandleWebInfo(process *gen.WebProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
-}

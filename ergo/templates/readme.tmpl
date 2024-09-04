@@ -1,8 +1,11 @@
 ## Project: "{{ index .Params "project" }}"
 
 ### Generated with
- - Types for network messaging: {{ index .Params "optionTypes" }}
- - Enabled Cloud feature: {{ index .Params "optionCloud"}}
+ - Types for the network messaging: {{ index .Params "optionTypes" }}
+ - Enabled Observer (http://localhost:9911): {{ index .Params "optionObserver"}}
+ {{- if index .Params "loggers" }}
+ - Loggers: {{- range index .Params "loggers" }} {{ .Name }}{{ end }}
+ {{ end }}
 
 ### Supervision Tree
 
@@ -40,4 +43,11 @@ Messages are generated for the networking in {{ .Dir }}/types.go
 {{ end }}
 
 #### Used command
-`{{ index .Params "args" }}`
+
+This project has been generated with the `ergo` tool. To install this tool, use the following command:
+
+`$ go install ergo.services/tools/ergo@latest`
+
+Below the command that was used to generate this project:
+
+```$ {{ index .Params "args" }} ```

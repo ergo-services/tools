@@ -2,21 +2,21 @@ package templates
 
 import (
 	_ "embed"
-	"html/template"
+	"text/template"
 )
 
 const (
-	udpTemplateActorFile   = "udp.tmpl"
-	udpTemplateHandlerFile = "udp_handler.tmpl"
+	udpTemplatePoolFile   = "udp.tmpl"
+	udpTemplateWorkerFile = "udp_worker.tmpl"
 )
 
 //go:embed udp.tmpl
-var udpTemplateActorText string
+var udpTemplatePoolText string
 
-//go:embed udp_handler.tmpl
-var udpTemplateHandlerText string
+//go:embed udp_worker.tmpl
+var udpTemplateWorkerText string
 
 var UDP = []*template.Template{
-	templateInit(udpTemplateActorFile, udpTemplateActorText),
-	templateInit(udpTemplateHandlerFile, udpTemplateHandlerText),
+	templateInit(udpTemplatePoolFile, udpTemplatePoolText),
+	templateInit(udpTemplateWorkerFile, udpTemplateWorkerText),
 }

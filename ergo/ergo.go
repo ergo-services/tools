@@ -20,33 +20,38 @@ var (
 	OptionWithWeb   listOptions
 	OptionWithTCP   listOptions
 	OptionWithUDP   listOptions
-	OptionWithSaga  listOptions
-	OptionWithStage listOptions
 	OptionWithPool  listOptions
-	OptionWithRaft  listOptions
-
 	OptionWithMsg   listOptions
-	OptionWithCloud string
+
+	OptionWithLogger listOptions
+
+	OptionWithObserver bool
+
+	loggers map[string]string
 )
 
 func init() {
-	flag.Var(&OptionInit, "init", "Node name. Available params: ssl, module")
+	flag.Var(&OptionInit, "init", "Node name. Available params: tls, module")
 	flag.StringVar(&OptionPath, "path", ".", "Set location")
 
-	flag.Var(&OptionWithApp, "with-app", "Add Application. The name must be capitalized.")
-	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, restart")
+	flag.Var(&OptionWithApp, "with-app", "Add Application. Available params: mode")
+	flag.Var(&OptionWithSup, "with-sup", "Add Supervisor. Available params: type, strategy")
 
 	flag.Var(&OptionWithActor, "with-actor", "Add actor")
-	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, ssl")
-	flag.Var(&OptionWithTCP, "with-tcp", "Add TCP-server. Available params: host, port, ssl")
+	flag.Var(&OptionWithWeb, "with-web", "Add Web-server. Available params: host, port, tls, websocket")
+	flag.Var(&OptionWithTCP, "with-tcp", "Add TCP-server. Available params: host, port, tls")
 	flag.Var(&OptionWithUDP, "with-udp", "Add UDP-server. Available params: host, port")
-	flag.Var(&OptionWithSaga, "with-saga", "Add Saga")
-	flag.Var(&OptionWithStage, "with-stage", "Add Stage")
-	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers")
-	flag.Var(&OptionWithRaft, "with-raft", "Add Raft")
+	flag.Var(&OptionWithPool, "with-pool", "Add Pool of workers. Available params: size")
 
 	flag.Var(&OptionWithMsg, "with-msg", "Add message for the networking")
-	flag.StringVar(&OptionWithCloud, "with-cloud", "", "Enable cloud with given cluster name")
+
+	flag.BoolVar(&OptionWithObserver, "with-observer", false, "Add Observer application")
+
+	flag.Var(&OptionWithLogger, "with-logger", "Add logger. See https://github.com/ergo-services/logger for available loggers")
+	loggers = map[string]string{
+		"colored": "ergo.services/logger/colored",
+		"rotate":  "ergo.services/logger/rotate",
+	}
 }
 
 func main() {
@@ -72,10 +77,7 @@ func main() {
 		OptionWithWeb.WithTemplates(templates.Web).WithDir(dir),
 		OptionWithTCP.WithTemplates(templates.TCP).WithDir(dir),
 		OptionWithUDP.WithTemplates(templates.UDP).WithDir(dir),
-		OptionWithSaga.WithTemplates(templates.Saga).WithDir(dir),
-		OptionWithStage.WithTemplates(templates.Stage).WithDir(dir),
 		OptionWithPool.WithTemplates(templates.Pool).WithDir(dir),
-		OptionWithRaft.WithTemplates(templates.Raft).WithDir(dir),
 		OptionWithSup.WithTemplates(templates.Sup).WithDir(dir),
 
 		// must be here due to traversing over the children
@@ -83,7 +85,42 @@ func main() {
 		OptionWithApp.WithTemplates(templates.App).WithDir(dir).WithAppDir("apps"),
 	}
 
+	// check if observer has been enabled
+	ext_applications := listOptions{}
+	if OptionWithObserver {
+		optionNode.Params["observer"] = true
+		observer := &Option{
+			Name:   "App",
+			LoName: "observer",
+			Params: make(map[string]any),
+		}
+		observer.Params["import"] = "ergo.services/application/observer"
+		observer.Params["args"] = "observer.Options{}"
+		ext_applications = append(ext_applications, observer)
+	}
+
+	if len(ext_applications) > 0 {
+		optionNode.Params["ext_applications"] = ext_applications
+	}
+
+	if OptionWithLogger != nil {
+		for i := range OptionWithLogger {
+			m, exist := loggers[OptionWithLogger[i].Name]
+			if exist == false {
+				fmt.Printf("error: unknown logger name %q\n", OptionWithLogger[i].Name)
+				return
+			}
+			OptionWithLogger[i].Params["import"] = m
+		}
+		optionNode.Params["loggers"] = OptionWithLogger
+	}
+
+	if len(OptionWithMsg) > 0 {
+		optionNode.Params["types"] = true
+	}
+
 	fmt.Printf("Generating project %q...\n", dir)
+
 	for _, l := range list {
 		for _, option := range *l {
 			if err := generate(option); err != nil {
@@ -101,10 +138,7 @@ func main() {
 	if len(OptionWithApp) > 0 {
 		optionNode.Params["applications"] = OptionWithApp
 	}
-	// node options - cloud
-	if OptionWithCloud != "" {
-		optionNode.Params["cloud"] = OptionWithCloud
-	}
+
 	// register types (messages for networking)
 	if len(OptionWithMsg) > 0 {
 		optionType := &Option{
@@ -141,16 +175,23 @@ func main() {
 	optionReadme.Params["processes"] = optionNode.Children
 	optionReadme.Params["project"] = optionNode.Name
 	optionReadme.Params["types"] = OptionWithMsg
+	optionReadme.Params["loggers"] = OptionWithLogger
 
-	optionReadme.Params["optionCloud"] = "false"
-	if len(OptionWithCloud) > 0 {
-		optionReadme.Params["optionCloud"] = "true"
-	}
+	optionReadme.Params["optionObserver"] = OptionWithObserver
+
 	optionReadme.Params["optionTypes"] = "false"
 	if len(OptionWithMsg) > 0 {
 		optionReadme.Params["optionTypes"] = "true"
 	}
-	optionReadme.Params["args"] = strings.Join(os.Args, " ")
+
+	cmdargs := []string{}
+	for _, arg := range os.Args {
+		if strings.ContainsAny(arg, ",") {
+			arg = fmt.Sprintf("\"%s\"", arg)
+		}
+		cmdargs = append(cmdargs, arg)
+	}
+	optionReadme.Params["args"] = strings.Join(cmdargs, " ")
 
 	if err := generate(&optionReadme); err != nil {
 		fmt.Printf("error: %s\n", err)

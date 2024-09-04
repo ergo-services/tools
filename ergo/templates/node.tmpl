@@ -1,115 +1,98 @@
 package {{.Package}}
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
-	"fmt"
-	{{ if index .Params "types" }}
-	"{{ index .Params "module" }}"
-	{{ end }}
+	{{ if index .Params "loggers" }}
+	"time"
+    {{ end }}
+
 	{{- range index .Params "applications" }}
 	"{{- index $.Params "module" }}/apps/{{ .LoName }}"
+	{{ end }}
+
+	{{ range index .Params "ext_applications" }}
+	"{{- index .Params "import" }}"
+	{{- end }}
+	{{ range index .Params "loggers" }}
+	"{{- index .Params "import" }}"
 	{{- end }}
 
-	"github.com/ergo-services/ergo"
-	"github.com/ergo-services/ergo/gen"
-	"github.com/ergo-services/ergo/node"
-	{{ if index .Params "ssl" }}
-	"crypto/tls"
-	"github.com/ergo-services/ergo/lib"
-	{{ end }}
+	"ergo.services/ergo"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 
 )
 
 var (
 	OptionNodeName   string
 	OptionNodeCookie string
-	{{ if index .Params "cloud" }}
-	OptionCloudClusterName   string
-	OptionCloudClusterCookie string
-	{{ end }}
 )
 
 func init() {
-	// generate random value for cookie
-	buff := make([]byte, 12)
-	rand.Read(buff)
-	randomCookie := hex.EncodeToString(buff)
-
 	{{ if index .Params "host" -}}
 	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@{{ index .Params "host" }}", "node name")
 	{{ else -}}
 	flag.StringVar(&OptionNodeName, "name", "{{ .Name }}@localhost", "node name")
 	{{ end -}}
-	flag.StringVar(&OptionNodeCookie, "cookie", randomCookie, "a secret cookie for interaction within the cluster")
-	{{ if index .Params "cloud" }}
-	// cloud options
-	flag.StringVar(&OptionCloudClusterName, "cloud-cluster", "{{ index .Params "cloud" }}", "cloud cluster name")
-	flag.StringVar(&OptionCloudClusterCookie, "cloud-cookie", "", "cloud cluster cookie")
-	{{ end }}
+	flag.StringVar(&OptionNodeCookie, "cookie", lib.RandomString(16), "a secret cookie for the network messaging")
 }
 
 func main() {
-	var options node.Options
-	{{ if .Children -}}
-	var process gen.Process
-	{{ end }}
+	var options gen.NodeOptions
 
 	flag.Parse()
 
 	{{ if index .Params "applications" }}
-	// Create applications that must be started
-	apps := []gen.ApplicationBehavior{ {{ range index .Params "applications" }}
+	// create applications that must be started
+	apps := []gen.ApplicationBehavior{ {{ range index .Params "ext_applications" }}
+	{{ .LoName }}.Create{{ .Name }}({{ index .Params "args" }}), {{ end -}}
+	{{ range index .Params "applications" }}
 	{{ .LoName }}.Create{{ .Name }}(), {{ end }}
 	}
 	options.Applications = apps
 	{{ end }}
 
-	{{ if index .Params "cloud" }}
-	// Enable cloud feature.
-	options.Cloud.Enable = true
-
-	// Set your cluster name and cookie to get access to the cloud
-	options.Cloud.Cluster = OptionCloudClusterName
-	options.Cloud.Cookie = OptionCloudClusterCookie
-
-	// We should enable accepting incoming connection requests
-	// from the nodes in your cloud cluster.
-	options.Proxy.Accept = true
-	{{ end -}}
-
-	{{ if index .Params "ssl" }}
-	// Enable SSL with self-signed certificate
-	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} Service")
-	certUpdater := lib.CreateCertUpdater(cert)
-	tlsConfig := &tls.Config{
-		GetCertificate: certUpdater.GetCertificateFunc(),
-	}
-	options.TLS = tlsConfig
+	{{ if index .Params "tls" }}
+	// enable TLS with self-signed certificate
+	cert, _ := lib.GenerateSelfSignedCert("{{ .Name }} service")
+	options.CertManager = gen.CreateCertManager(cert)
 	{{ end }}
 
-	// Starting node
-	{{.Name}}Node, err := ergo.StartNode(OptionNodeName, OptionNodeCookie, options)
+	{{ if index .Params "loggers" }}
+	// disable default logger to get rid of multiple logging to the os.Stdout
+	options.Log.DefaultLogger.Disable = true
+	{{ range index .Params "loggers" }}
+	// add logger "{{ .Name }}".
+	logger{{ .Name }}, err := {{ .Name }}.CreateLogger({{ .Name }}.Options{TimeFormat: time.DateTime})
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("Node %q is started\n", {{.Name}}Node.Name())
+	options.Log.Loggers = append(options.Log.Loggers, gen.Logger{Name: "{{ .Name }}", Logger: logger{{ .Name }}})
+	{{ end }}
+	{{ end }}
+	// set network options
+	options.Network.Cookie = OptionNodeCookie
 
-	{{ if index .Params "types" }}
-	if err := {{ index $.Params "module-name" }}.RegisterTypes(); err != nil {
+	// starting node
+	node, err := ergo.StartNode(gen.Atom(OptionNodeName), options)
+	if err != nil {
 		panic(err)
 	}
+
+	{{ if index .Params "types" }}
+	// register network messages
+	//if err := node.Network().RegisterMessage({{ index $.Params "module-name" }}.Messages...); err != nil {
+	//	panic(err)
+	//}
 	{{ end }}
 
 	{{ range .Children}}
 	// starting process {{ .Name }}
-	process, err = {{$.Name}}Node.Spawn("{{ .LoName }}", gen.ProcessOptions{}, create{{ .Name }}())
-	if err != nil {
+	if _, err := node.SpawnRegister("{{ .LoName }}", factory_{{ .Name }}, gen.ProcessOptions{}); err != nil {
 		panic(err)
 	}
-	fmt.Printf("  process %q with PID %s is started\n", process.Name(), process.Self())
 	{{ end }}
 
-	{{.Name}}Node.Wait()
+	node.Wait()
 }
+

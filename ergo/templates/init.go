@@ -2,7 +2,7 @@ package templates
 
 import (
 	"fmt"
-	"html/template"
+	"text/template"
 )
 
 func templateInit(name string, text string) *template.Template {

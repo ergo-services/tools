@@ -1,36 +1,38 @@
 package {{ .Package }}
 
 import (
-	"fmt"
-
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/gen"
 )
 
 func Create{{ .Name }}() gen.ApplicationBehavior {
 	return &{{ .Name }}{}
 }
 
-type {{ .Name }} struct {
-	gen.Application
-}
+type {{ .Name }} struct {}
 
-func (app *{{ .Name }}) Load(args ...etf.Term) (gen.ApplicationSpec, error) {
+// Load invoked on loading application using method ApplicationLoad of gen.Node interface.
+func (app *{{ .Name }}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
 	return gen.ApplicationSpec{
 		Name: "{{ .LoName }}",
 		Description: "description of this application",
-		Version:     "v.1.0",
-		Children: []gen.ApplicationChildSpec{
+		{{ $type := index .Params "mode" }}
+		{{- if (eq $type "temp") }} Mode: gen.ApplicationModeTemporary,
+		{{- else if (eq $type "perm") }} Mode: gen.ApplicationModePermanent,
+		{{- else }} Mode: gen.ApplicationModeTransient,
+		{{- end }}
+		Group: []gen.ApplicationMemberSpec{
 		{{ range .Children -}}
-			gen.ApplicationChildSpec{
+			{
 				Name:  "{{ .LoName }}",
-				Child: create{{ .Name }}(),
+				Factory: factory_{{ .Name }},
 			},
 		{{ end -}}
 		},
 	}, nil
 }
 
-func (app *{{ .Name }}) Start(process gen.Process, args ...etf.Term) {
-	fmt.Printf("Application {{ .Name }} started with Pid %s\n", process.Self())
-}
+// Start invoked once the application started
+func (app *{{ .Name }}) Start(mode gen.ApplicationMode) {}
+
+// Terminate invoked once the application stopped
+func (app *{{ .Name }}) Terminate(reason error)         {}

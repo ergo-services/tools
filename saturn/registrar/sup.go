@@ -1,48 +1,41 @@
-package {{ .Package }}
+package registrar
 
 import (
-	"ergo.services/ergo/gen"
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
 )
 
-func factory_{{ .Name }}() gen.ProcessBehavior {
-	return &{{ .Name }}{}
+func factoryRegistrarSup() gen.ProcessBehavior {
+	return &RegistrarSup{}
 }
 
-type {{ .Name }} struct {
+type RegistrarSup struct {
 	act.Supervisor
 }
 
 // Init invoked on a spawn Supervisor process. This is a mandatory callback for the implementation
-func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
+func (sup *RegistrarSup) Init(args ...any) (act.SupervisorSpec, error) {
 	var spec act.SupervisorSpec
 
 	// set supervisor type
-	{{ $type := index .Params "type" }}
-	{{- if (eq $type "afo") }} spec.Type = act.SupervisorTypeAllForOne
-	{{- else if (eq $type "rfo") }} spec.Type = act.SupervisorTypeRestForOne
-	{{- else if (eq $type "sofo") }} spec.Type = act.SupervisorTypeSimpleOneForOne
-	{{- else }} spec.Type = act.SupervisorTypeOneForOne
-	{{- end }}
+	spec.Type = act.SupervisorTypeOneForOne
 
 	// add children
 	spec.Children = []act.SupervisorChildSpec{
-		{{ range .Children -}}
 		{
-			Name:  "{{ .LoName }}",
-			Factory: factory_{{ .Name }},
+			Name:    "storage",
+			Factory: factoryStorage,
 		},
-		{{ end -}}
+		{
+			Name:    "registrar",
+			Factory: factoryRegistrar,
+		},
 	}
 
 	// set strategy
-	spec.Restart.Strategy = {{ $restart := index .Params "strategy" }}
-			{{- if (eq $restart "perm") }} act.SupervisorStrategyPermanent
-			{{- else if (eq $restart "temp") }} act.SupervisorStrategyTemporary
-			{{- else }} act.SupervisorStrategyTransient
-			{{- end }}
-	spec.Restart.Intensity = 2 // How big bursts of restarts you want to tolerate.
-	spec.Restart.Period = 5 // In seconds.
+	spec.Restart.Strategy = act.SupervisorStrategyTransient
+	spec.Restart.Intensity = 5 // How big bursts of restarts you want to tolerate.
+	spec.Restart.Period = 5    // In seconds.
 
 	return spec, nil
 }
@@ -53,13 +46,13 @@ func (sup *{{ .Name }}) Init(args ...any) (act.SupervisorSpec, error) {
 
 // HandleChildStart invoked on a successful child process starting if option EnableHandleChild
 // was enabled in act.SupervisorSpec
-func (sup *{{ .Name }}) HandleChildStart(name gen.Atom, pid gen.PID) error {
+func (sup *RegistrarSup) HandleChildStart(name gen.Atom, pid gen.PID) error {
 	return nil
 }
 
 // HandleChildTerminate invoked on a child process termination if option EnableHandleChild
 // was enabled in act.SupervisorSpec
-func (sup *{{ .Name }}) HandleChildTerminate(name gen.Atom, pid gen.PID, reason error) error {
+func (sup *RegistrarSup) HandleChildTerminate(name gen.Atom, pid gen.PID, reason error) error {
 	return nil
 }
 
@@ -67,7 +60,7 @@ func (sup *{{ .Name }}) HandleChildTerminate(name gen.Atom, pid gen.PID, reason 
 // Non-nil value of the returning error will cause termination of this process.
 // To stop this process normally, return gen.TerminateReasonNormal or
 // gen.TerminateReasonShutdown. Any other - for abnormal termination.
-func (sup *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
+func (sup *RegistrarSup) HandleMessage(from gen.PID, message any) error {
 	sup.Log().Info("supervisor got message from %s", from)
 	return nil
 }
@@ -75,19 +68,18 @@ func (sup *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
 // HandleCall invoked if Supervisor got a synchronous request made with gen.Process.Call(...).
 // Return nil as a result to handle this request asynchronously and
 // to provide the result later using the gen.Process.SendResponse(...) method.
-func (sup *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+func (sup *RegistrarSup) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	sup.Log().Info("supervisor got request from %s with reference %s", from, ref)
 	return gen.Atom("pong"), nil
 }
 
 // Terminate invoked on a termination supervisor process
-func (sup *{{ .Name }}) Terminate(reason error) {
+func (sup *RegistrarSup) Terminate(reason error) {
 	sup.Log().Info("supervisor terminated with reason: %s", reason)
 }
 
 // HandleInspect invoked on the request made with gen.Process.Inspect(...)
-func (sup *{{ .Name }}) HandleInspect(from gen.PID, item ...string) map[string]string {
+func (sup *RegistrarSup) HandleInspect(from gen.PID, item ...string) map[string]string {
 	sup.Log().Info("supervisor got inspect request from %s", from)
 	return nil
 }
-

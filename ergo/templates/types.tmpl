@@ -1,8 +1,8 @@
 package {{ .Package }}
 
 import (
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/lib"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/net/edf"
 )
 
 {{ range .Children -}}
@@ -11,21 +11,18 @@ type {{ .Name }} struct{
 }
 {{ end -}}
 
-func RegisterTypes() error {
-	types := []struct {
-		reg  any
-		opts etf.RegisterTypeOptions
-	}{
-	{{ range .Children -}}
-		{reg: {{ .Name }}{}, opts: etf.RegisterTypeOptions{ {{ if index .Params "strict" }} Strict: true {{ end }} }},
-	{{ end -}}
+func init() {
+	types := []any{
+        {{ range .Children -}}
+        {{ .Name }}{},
+        {{ end -}}
 	}
 
 	for _, t := range types {
-		_, err := etf.RegisterType(t.reg, t.opts)
-		if err != nil && err != lib.ErrTaken {
-			return err
+		err := edf.RegisterTypeOf(t)
+		if err == nil || err == gen.ErrTaken {
+			continue
 		}
+		panic(err)
 	}
-	return nil
 }

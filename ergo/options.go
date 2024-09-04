@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"html/template"
 	"path"
 	"strings"
+	"text/template"
 )
 
 var (
@@ -130,8 +130,7 @@ func parseParams(p string) (map[string]any, error) {
 			params[s[0]] = s[1]
 			continue
 		}
-		params[s[0]] = ""
-		fmt.Println(pairs)
+		params[s[0]] = true
 	}
 	return params, nil
 }

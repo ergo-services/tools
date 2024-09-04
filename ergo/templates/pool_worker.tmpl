@@ -1,33 +1,47 @@
 package {{ .Package }}
 
 import (
-	"fmt"
-
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
 )
-func create{{ .Name }}Worker() gen.PoolWorkerBehavior {
+func factory_{{ .Name }}Worker() gen.ProcessBehavior{
 	return &{{ .Name }}Worker{}
 }
 
 type {{ .Name }}Worker struct {
-	gen.PoolWorker
+	act.Actor
 }
 
-func (w *{{ .Name }}Worker) InitPoolWorker(process *gen.PoolWorkerProcess, args ...etf.Term) error {
-	fmt.Println("   started pool worker: ", process.Self())
+// Init invoked on a start this process.
+func (w *{{ .Name }}Worker) Init(args ...any) error {
+	w.Log().Info("started worker process in pool: %s", w.Parent())
 	return nil
 }
 
-func (w *{{ .Name }}Worker) HandleWorkerCall(process *gen.PoolWorkerProcess, message etf.Term) etf.Term {
-	fmt.Printf("[%s] received Call request: %v\n", process.Self(), message)
-	return "pong"
+//
+// Methods below are optional
+//
+
+// HandleMessage invoked if worker process received a message sent with gen.Process.Send(...).
+// Non-nil value of the returning error will cause termination of this process.
+// To stop this process normally, return gen.TerminateReasonNormal
+// or any other for abnormal termination.
+// Stopping the worker process causes the spawning of the new worker process by the pool process
+func (w *{{ .Name }}Worker) HandleMessage(from gen.PID, message any) error {
+	w.Log().Info("worker received message from %s", from)
+	return nil
 }
 
-func (w *{{ .Name }}Worker) HandleWorkerCast(process *gen.PoolWorkerProcess, message etf.Term) {
-	fmt.Printf("[%s] received Cast message: %v\n", process.Self(), message)
+// HandleCall invoked if Actor got a synchronous request made with gen.Process.Call(...).
+// Return nil as a result to handle this request asynchronously and
+// to provide the result later using the gen.Process.SendResponse(...) method.
+func (w *{{ .Name }}Worker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	w.Log().Info("worker received request from %s with reference %s", from, ref)
+	return gen.Atom("pong"), nil
 }
 
-func (w *{{ .Name }}Worker) HandleWorkerInfo(process *gen.PoolWorkerProcess, message etf.Term) {
-	fmt.Printf("[%s] received Info message: %v\n", process.Self(), message)
+
+// Terminate invoked on a termination process
+func (w *{{ .Name }}Worker) Terminate(reason error) {
+	w.Log().Info("worker process terminated with reason: %s", reason)
 }

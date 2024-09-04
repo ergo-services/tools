@@ -1,62 +1,90 @@
 package {{ .Package }}
 
 import (
-	"github.com/ergo-services/ergo/etf"
-	"github.com/ergo-services/ergo/gen"
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+	"ergo.services/ergo/meta"
 )
 
-func create{{ .Name }}() gen.UDPBehavior {
+func factory_{{ .Name }}() gen.ProcessBehavior {
 	return &{{ .Name }}{}
 }
 
+
 type {{ .Name }} struct {
-	gen.UDP
+	act.Pool
 }
 
-//
-// Mandatory callbacks
-//
+// Init invoked on a spawn Pool for the initializing.
+func (u *{{ .Name }}) Init(args ...any) (act.PoolOptions, error) {
+    var poolOptions act.PoolOptions
+	var udpOptions meta.UDPServerOptions
 
-// InitUDP invoked on starting UDP server
-func (us *{{ .Name }}) InitUDP(process *gen.UDPProcess, args ...etf.Term) (gen.UDPOptions, error) {
-	var options gen.UDPOptions
-
-	options.Handler = create{{ .Name }}Handler()
+	// create UDP server meta-process (opens UDP-port for the listener)
 	{{- if index .Params "port" }}
-	options.Port = {{ index .Params "port" }}
+	udpOptions.Port = {{ index .Params "port" }}
 	{{- else }}
-	options.Port = 7654
+	udpOptions.Port = 7654 // use this port as an example
 	{{- end }}
-	{{- if index .Params "host" }}
-	options.Host = "{{ index .Params "host" }}"
-	{{- end }}
-	{{- if index .Params "handlers" }}
-	options.NumHandlers = {{ index .Params "handlers" }}
-	{{- end }}
+	{{ if index .Params "host" -}}
+	udpOptions.Host = "{{ index .Params "host" }}"
+	{{- else }}
+	udpOptions.Host = "localhost"
+	{{ end -}}
 
-	return options, nil
+	metaudp, err := meta.CreateUDPServer(udpOptions)
+	if err != nil {
+		u.Log().Error("unable to create UDP server meta-process: %s", err)
+		return poolOptions, err
+	}
+
+	// spawn meta process
+	id, err := u.SpawnMeta(metaudp, gen.MetaOptions{})
+	if err != nil {
+		u.Log().Error("unable to spawn UDP server meta-process: %s", err)
+		// we should close listening port
+		metaudp.Terminate(err)
+		return poolOptions, err
+	}
+
+	u.Log().Info("started UDP server on %s:%d (meta-process: %s)", udpOptions.Host, udpOptions.Port, id)
+	u.Log().Info("you may check it with command below:")
+	u.Log().Info("   $ nc -u %s %d", udpOptions.Host, udpOptions.Port)
+    poolOptions.WorkerFactory = factory_{{ .Name }}UDPWorker
+	return poolOptions, nil
 }
 
 //
-// Optional gen.Server's callbacks
+// Methods below are optional, so you can remove those that aren't be used
 //
 
-// HandleUDPCall this callback is invoked on ServerProcess.Call(...).
-func (us *{{ .Name }}) HandleUDPCall(process *gen.UDPProcess, from gen.ServerFrom, message etf.Term) (etf.Term, gen.ServerStatus) {
-	return nil, gen.ServerStatusOK
+func (u *{{ .Name }}) HandleMessage(from gen.PID, message any) error {
+	u.Log().Info("got message from %s: %#v", from, message)
+	return nil
 }
 
-// HandleUDPCast this callback is invoked on ServerProcess.Cast(...).
-func (us *{{ .Name }}) HandleUDPCast(process *gen.UDPProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
+// HandleCall invoked if Actor got a synchronous request made with gen.Process.Call(...).
+// Return nil as a result to handle this request asynchronously and
+// to provide the result later using the gen.Process.SendResponse(...) method.
+func (u *{{ .Name }}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	u.Log().Info("got request from %s with reference %s", from, ref)
+	return gen.Atom("pong"), nil
 }
 
-// HandleUDPInfo this callback is invoked on Process.Send(...).
-func (us *{{ .Name }}) HandleUDPInfo(process *gen.UDPProcess, message etf.Term) gen.ServerStatus {
-	return gen.ServerStatusOK
+// Terminate invoked on a termination process
+func (u *{{ .Name }}) Terminate(reason error) {
+	u.Log().Info("terminated with reason: %s", reason)
 }
 
-// HandleUDPTerminate this callback invoked on a process termination
-func (us *{{ .Name }}) HandleUDPTerminate(process *gen.UDPProcess, reason string) {
+// HandleEvent invoked on an event message if this process got subscribed on
+// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
+// See https://docs.ergo.services/basics/events for more information
+func (u *{{ .Name }}) HandleEvent(message gen.MessageEvent) error {
+	return nil
+}
 
+// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+func (u *{{ .Name }}) HandleInspect(from gen.PID, item ...string) map[string]string {
+	u.Log().Info("got inspect request from %s", from)
+	return nil
 }

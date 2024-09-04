@@ -1,0 +1,49 @@
+#
+# Configuration for the Saturn. Any changes require a restart service
+#
+Saturn:
+  Token: "IwOBhgAEAGzPtkvugDBhYCS7P1"
+  # an empty certificate value causes a self-signed certificate to be used
+  Certificate:
+    Fullchain.file:
+    Private.file:
+
+#
+# Configuration for the clusters. Any updates will be pushed to the nodes immediately
+#
+Clusters:
+  # Common configuration for all nodes in any cluster
+  Certificate:
+    Fullchain.file:
+    Private.file:
+
+  Example1: 3158
+
+  demo@localhost:
+    # Configuration for the nodes with name "demo@localhost" in any cluster
+    Example: "valuee"
+    # config value below overrides value of 'Example1' from the common configuration
+    Example1: 3.14
+
+  Cluster@:
+    # Configuration for nodes with empty cluster name value
+    Example10: 1234
+    node@localhost:
+      Example101: "val102"
+    demo@localhost:
+      Yammy: "gummy"
+
+  Cluster@mycluster:
+    # Configuration for nodes in the cluster "mycluster"
+    Common1: "value"
+    Common2: 1234
+
+    node@localhost:
+      # Configuration for the node with name "node@localhost" in the "mycluster"
+      ExampleA: "Hello World"
+      # config value below overrides value of 'Example1' from the common configuration
+      # for the node@localhost
+      Example1: 316
+      # config value below overrides value of 'Common1' from the configuration of this cluster
+      Common1: "value1"
+

@@ -2,7 +2,7 @@ package templates
 
 import (
 	_ "embed"
-	"html/template"
+	"text/template"
 )
 
 const (

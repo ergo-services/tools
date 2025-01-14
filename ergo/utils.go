@@ -1,4 +1,4 @@
-package ergo
+package main
 
 import (
 	"bytes"

@@ -65,7 +65,7 @@ func main() {
 	}
 
 	if len(flag.CommandLine.Args()) == 0 {
-		fmt.Println("ergo:", Version.Name)
+		fmt.Println(Version.Name)
 		fmt.Println("version:", Version.Release)
 		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
 		fmt.Println("args:")

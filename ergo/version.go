@@ -16,7 +16,7 @@ func init() {
 		}
 
 		if Version.Commit == "" {
-			Version.Commit = info.Main.Sum
+			Version.Commit = info.Main.Version
 		}
 	}
 }

@@ -11,11 +11,12 @@ func init() {
 		for _, setting := range info.Settings {
 			if setting.Key == "vcs.revision" {
 				Version.Commit = setting.Value
-				if Version.Commit == "" {
-					Version.Commit = info.Main.Version
-				}
 				break
 			}
+		}
+
+		if Version.Commit == "" {
+			Version.Commit = info.Main.Version
 		}
 	}
 }

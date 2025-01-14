@@ -7,7 +7,7 @@
 [![Discord](https://img.shields.io/badge/Discord-ergo__services-7289da?style=plastic&logo=discord&logoColor=white&style=flat)](https://discord.gg/xHEa7KzX)
 
 
-Tools that make your life easier working with Ergo Framework [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo) and Ergo Services [https://ergo.services](https://ergo.services).
+Tools that make your life easier working with Ergo Framework [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo).
 
 ## ergo
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](ergo/LICENSE)

@@ -7,7 +7,7 @@ import (
 	"path"
 	"strings"
 
-	"ergo.services/tools/ergo/templates"
+	"ergo.tools/ergo/templates"
 )
 
 var (

@@ -64,8 +64,19 @@ func main() {
 		return
 	}
 
+	if len(flag.CommandLine.Args()) == 0 {
+		fmt.Println("ergo:", Version.Name)
+		fmt.Println("version:", Version.Release)
+		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
+		fmt.Println("args:")
+		flag.PrintDefaults()
+		return
+	}
+
 	if len(OptionInit) == 0 {
 		fmt.Println("error: node name is empty")
+		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
+		flag.PrintDefaults()
 		return
 	}
 	optionNode := OptionInit[0]

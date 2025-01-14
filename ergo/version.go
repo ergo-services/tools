@@ -19,7 +19,7 @@ func init() {
 
 var (
 	Version = gen.Version{
-		Name:    "ergo: a boilerplate code generation tool for Ergo Framework",
+		Name:    "A cli-tool for boilerplate code generation for Ergo Framework",
 		Release: "0.1.0",
 		License: gen.LicenseMIT,
 	}

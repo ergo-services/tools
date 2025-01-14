@@ -24,7 +24,8 @@ var (
 	OptionWithMsg      listOptions
 	OptionWithLogger   listOptions
 	OptionWithObserver bool
-	OptionVersion      bool
+
+	OptionVersion bool
 
 	loggers map[string]string
 )

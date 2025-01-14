@@ -14,18 +14,18 @@ var (
 	OptionInit listOptions
 	OptionPath string
 
-	OptionWithApp   listOptions
-	OptionWithSup   listOptions
-	OptionWithActor listOptions
-	OptionWithWeb   listOptions
-	OptionWithTCP   listOptions
-	OptionWithUDP   listOptions
-	OptionWithPool  listOptions
-	OptionWithMsg   listOptions
-
-	OptionWithLogger listOptions
-
+	OptionWithApp      listOptions
+	OptionWithSup      listOptions
+	OptionWithActor    listOptions
+	OptionWithWeb      listOptions
+	OptionWithTCP      listOptions
+	OptionWithUDP      listOptions
+	OptionWithPool     listOptions
+	OptionWithMsg      listOptions
+	OptionWithLogger   listOptions
 	OptionWithObserver bool
+
+	OptionVersion bool
 
 	loggers map[string]string
 )
@@ -48,6 +48,8 @@ func init() {
 	flag.BoolVar(&OptionWithObserver, "with-observer", false, "Add Observer application")
 
 	flag.Var(&OptionWithLogger, "with-logger", "Add logger. See https://github.com/ergo-services/logger for available loggers")
+	flag.BoolVar(&OptionVersion, "version", false, "print version")
+
 	loggers = map[string]string{
 		"colored": "ergo.services/logger/colored",
 		"rotate":  "ergo.services/logger/rotate",
@@ -56,6 +58,11 @@ func init() {
 
 func main() {
 	flag.Parse()
+
+	if OptionVersion {
+		fmt.Println(Version)
+		return
+	}
 
 	if len(OptionInit) == 0 {
 		fmt.Println("error: node name is empty")

@@ -60,7 +60,9 @@ func main() {
 	flag.Parse()
 
 	if OptionVersion {
-		fmt.Println(Version)
+		fmt.Println(Version.Name)
+		fmt.Println("version:", Version.Release, Version.Commit)
+		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
 		return
 	}
 
@@ -76,6 +78,7 @@ func main() {
 	if len(OptionInit) == 0 {
 		fmt.Println("error: node name is empty")
 		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
+		fmt.Println("args:")
 		flag.PrintDefaults()
 		return
 	}

@@ -7,14 +7,14 @@
 [![Discord](https://img.shields.io/badge/Discord-ergo__services-7289da?style=plastic&logo=discord&logoColor=white&style=flat)](https://discord.gg/xHEa7KzX)
 
 
-Tools that make your life easier working with Ergo Framework [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo) and Ergo Services [https://ergo.services](https://ergo.services).
+Tools that make your life easier working with Ergo Framework [https://github.com/ergo-services/ergo](https://github.com/ergo-services/ergo).
 
 ## ergo
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](ergo/LICENSE)
 
   This is the boilerplate code generator to create a service with Ergo Framework. To install it, use the following command:
 
-  `go install ergo.services/tools/ergo@latest`
+  `go install ergo.tools/ergo@latest`
 
   Doc: https://docs.ergo.services/tools/ergo
 
@@ -23,7 +23,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   This tool allows you to inspect nodes in your cluster, running processes (including meta-processes) and, their state:
 
-  `go install ergo.services/tools/observer@latest`
+  `go install ergo.tools/observer@latest`
 
   Doc: https://docs.ergo.services/tools/observer
 
@@ -35,7 +35,7 @@ Tools that make your life easier working with Ergo Framework [https://github.com
   - to discover applications running on the nodes
   - to propagate configuration on the fly (pushing updates) to the registered nodes.
 
-  `go install ergo.services/tools/saturn@latest`
+  `go install ergo.tools/saturn@latest`
 
 For commercial or production purposes, it is necessary [to purchase a licence](https://github.com/sponsors/ergo-services).
 

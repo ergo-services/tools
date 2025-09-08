@@ -47,7 +47,11 @@ func init() {
 
 	flag.BoolVar(&OptionWithObserver, "with-observer", false, "Add Observer application")
 
-	flag.Var(&OptionWithLogger, "with-logger", "Add logger. See https://github.com/ergo-services/logger for available loggers")
+	flag.Var(
+		&OptionWithLogger,
+		"with-logger",
+		"Add logger. See https://github.com/ergo-services/logger for available loggers",
+	)
 	flag.BoolVar(&OptionVersion, "version", false, "print version")
 
 	loggers = map[string]string{
@@ -66,15 +70,6 @@ func main() {
 		return
 	}
 
-	if len(flag.CommandLine.Args()) == 0 {
-		fmt.Println(Version.Name)
-		fmt.Println("version:", Version.Release, Version.Commit)
-		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
-		fmt.Println("args:")
-		flag.PrintDefaults()
-		return
-	}
-
 	if len(OptionInit) == 0 {
 		fmt.Println("error: node name is empty")
 		fmt.Println("docs: https://docs.ergo.services/tools/ergo")
@@ -82,6 +77,7 @@ func main() {
 		flag.PrintDefaults()
 		return
 	}
+
 	optionNode := OptionInit[0]
 	optionNode.Package = "main"
 	optionNode.Templates = templates.Node

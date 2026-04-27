@@ -289,8 +289,7 @@ func (s *storage) configValue(key string, conf *koanf.Koanf, current any) any {
 			return nil
 		}
 
-		vcurrent := s.config[key]
-		if current, _ := vcurrent.([]byte); bytes.Compare(current, file_new) == 0 {
+		if currentBytes, _ := current.([]byte); bytes.Equal(currentBytes, file_new) {
 			// no changes. ignore
 			return nil
 		}
@@ -334,7 +333,7 @@ func (s *storage) watchConfig() {
 				continue
 			}
 
-			if event.Op == fsnotify.Chmod {
+			if event.Op == fsnotify.Write || event.Op == fsnotify.Create {
 				s.Send(s.PID(), readConfig{})
 			}
 
@@ -460,10 +459,12 @@ func (cl *cluster) unregisterApp(name gen.Atom, node gen.Atom) {
 		if routes[i].Node != node {
 			continue
 		}
-
-		routes[0] = routes[i]
-		routes = routes[1:]
-		cl.applicationRoutes[name] = routes
+		routes = append(routes[:i], routes[i+1:]...)
+		if len(routes) == 0 {
+			delete(cl.applicationRoutes, name)
+		} else {
+			cl.applicationRoutes[name] = routes
+		}
 		return
 	}
 }

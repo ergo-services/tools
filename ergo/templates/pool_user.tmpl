@@ -1,0 +1,53 @@
+package {{.Package}}
+
+import (
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+)
+
+type {{.Name}} struct {
+	act.Pool
+}
+
+// Init is called when the pool starts. Configure pool size, worker factory,
+// and other options in act.PoolOptions.
+// Messages with priority higher than gen.MessagePriorityNormal are handled
+// by the pool process itself; all other messages are forwarded to workers.
+// See https://docs.ergo.services/basics/pool
+func (p *{{.Name}}) Init(args ...any) (act.PoolOptions, error) {
+	p.Log().Info("{{.Name}} started")
+	return act.PoolOptions{
+		WorkerFactory: factory_{{.Name}}Worker,
+		PoolSize:      3,
+	}, nil
+}
+
+// Terminate is called when the pool process stops.
+func (p *{{.Name}}) Terminate(reason error) {}
+
+// {{.Name}}Worker is spawned and managed by {{.Name}}.
+// A new worker is spawned automatically when an existing one terminates.
+// See https://docs.ergo.services/basics/pool#workers
+type {{.Name}}Worker struct {
+	act.Actor
+}
+
+// Init is called each time a worker starts (including after a restart).
+func (w *{{.Name}}Worker) Init(args ...any) error {
+	w.Log().Info("{{.Name}}Worker started")
+	return nil
+}
+
+// HandleMessage is called with messages forwarded from the pool.
+// Returning a non-nil error terminates this worker; the pool spawns a replacement.
+func (w *{{.Name}}Worker) HandleMessage(from gen.PID, message any) error {
+	return nil
+}
+
+// HandleCall is called with synchronous requests forwarded from the pool.
+func (w *{{.Name}}Worker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	return gen.Atom("pong"), nil
+}
+
+// Terminate is called when the worker stops.
+func (w *{{.Name}}Worker) Terminate(reason error) {}

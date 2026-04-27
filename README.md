@@ -18,15 +18,6 @@ Tools that make your life easier working with Ergo Framework [https://github.com
 
   Doc: https://docs.ergo.services/tools/ergo
 
-## observer
-[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](observer/LICENSE)
-
-  This tool allows you to inspect nodes in your cluster, running processes (including meta-processes) and, their state:
-
-  `go install ergo.tools/observer@latest`
-
-  Doc: https://docs.ergo.services/tools/observer
-
 ## saturn
 [![BSL 1.1](https://img.shields.io/badge/license-BSL_1.1-31af90.svg)](saturn/LICENSE)
 

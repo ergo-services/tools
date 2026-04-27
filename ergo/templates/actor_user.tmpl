@@ -1,0 +1,38 @@
+package {{.Package}}
+
+import (
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+)
+
+type {{.Name}} struct {
+	act.Actor
+}
+
+// Init is called when the process starts. Return a non-nil error to abort startup.
+// args are passed from SpawnRegister or SupervisorChildSpec.Args.
+// See https://docs.ergo.services/basics/actors
+func (a *{{.Name}}) Init(args ...any) error {
+	a.Log().Info("{{.Name}} started")
+	return nil
+}
+
+// HandleMessage is called for every async message sent via gen.Process.Send.
+// Returning a non-nil error terminates the process.
+// Return gen.TerminateReasonNormal for a clean shutdown.
+// See https://docs.ergo.services/basics/actors#handling-messages
+func (a *{{.Name}}) HandleMessage(from gen.PID, message any) error {
+	return nil
+}
+
+// HandleCall is called for synchronous requests made via gen.Process.Call.
+// Return nil as result to handle the request asynchronously and send the
+// response later via gen.Process.SendResponse.
+// See https://docs.ergo.services/basics/actors#synchronous-requests
+func (a *{{.Name}}) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	return gen.Atom("pong"), nil
+}
+
+// Terminate is called when the process is about to stop.
+// reason is gen.TerminateReasonNormal for a clean shutdown.
+func (a *{{.Name}}) Terminate(reason error) {}

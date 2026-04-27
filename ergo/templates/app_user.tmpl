@@ -1,0 +1,21 @@
+package {{.Package}}
+
+import "ergo.services/ergo/gen"
+
+type {{.Name}} struct{}
+
+// Tune is called from Load and lets you customize the ApplicationSpec before
+// the application starts. Set Env, Depends, Tags, Version, Description,
+// Weight, or Map here. The Group (process list) is managed by the generated
+// Load. Do not modify it here unless you have a specific reason.
+// See https://docs.ergo.services/basics/applications
+func (app *{{.Name}}) Tune(node gen.Node, spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
+	return spec, nil
+}
+
+// Start is called once all processes in Group have started successfully.
+func (app *{{.Name}}) Start(mode gen.ApplicationMode) {}
+
+// Terminate is called when the application stops.
+// reason is gen.TerminateReasonNormal for a clean shutdown.
+func (app *{{.Name}}) Terminate(reason error) {}

@@ -1,0 +1,29 @@
+package {{.Package}}
+
+import (
+	"ergo.services/ergo/act"
+	"ergo.services/ergo/gen"
+)
+
+type {{.Name}} struct {
+	act.Supervisor
+}
+
+// Tune is called from Init and lets you adjust the SupervisorSpec before the
+// supervisor starts. Modify Restart.Intensity, Restart.Period, KeepOrder, or
+// add dynamic children here. The Children list and restart strategy are set
+// by the generated Init. Override them here if needed.
+// See https://docs.ergo.services/basics/supervisors
+func (sup *{{.Name}}) Tune(spec act.SupervisorSpec, args ...any) (act.SupervisorSpec, error) {
+	return spec, nil
+}
+
+// HandleMessage is called for messages sent directly to this supervisor.
+// Supervisors rarely handle messages; consider using a dedicated actor instead.
+func (sup *{{.Name}}) HandleMessage(from gen.PID, message any) error {
+	return nil
+}
+
+// Terminate is called when the supervisor stops.
+// reason is gen.TerminateReasonNormal for a clean shutdown.
+func (sup *{{.Name}}) Terminate(reason error) {}

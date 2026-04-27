@@ -1,53 +1,91 @@
-## Project: "{{ index .Params "project" }}"
+# {{.NodeName}}
 
-### Generated with
- - Types for the network messaging: {{ index .Params "optionTypes" }}
- - Enabled Observer (http://localhost:9911): {{ index .Params "optionObserver"}}
- {{- if index .Params "loggers" }}
- - Loggers: {{- range index .Params "loggers" }} {{ .Name }}{{ end }}
- {{ end }}
+Built with [Ergo Framework](https://ergo.services), actor model and network transparency for Go.
 
-### Supervision Tree
+## Quick start
 
-{{- if index .Params "applications" }}
+```
+go run ./cmd
+```
 
-Applications
-{{- range index .Params "applications" }}
- - `{{ .Name }}{}` {{ .Dir }}/{{ .LoName -}}.go
-  {{- range .Children }}
-   - `{{ .Name }}{}` {{ .Dir }}/{{ .LoName -}}.go
-    {{- range .Children }}
-     - `{{ .Name }}{}` {{ .Dir }}/{{ .LoName -}}.go
-       {{- if .Children }}
-	   - ... has more items. See source code
-	   {{- end }}
-    {{- end }}
-  {{- end }}
- {{- end }}
-{{ end -}}
-{{ if index .Params "processes" }}
-Process list that is starting by node directly
-{{- range index .Params "processes" }}
- - `{{ .Name }}{}` {{ .Dir }}/cmd/{{ .LoName -}}.go
-  {{- range .Children }}
-   - `{{ .Name }}{}` {{ .Dir }}/{{ .LoName -}}.go
-  {{- end }}
-{{- end }}
-{{ end }}
-{{- if index .Params "types" }}
-Messages are generated for the networking in {{ .Dir }}/types.go
-{{ range index .Params "types" -}}
- - `{{ .Name }}{}`
-{{ end -}}
+## Supervision tree
 
-{{ end }}
+```
+node: {{.NodeName}}
+{{- range .Apps}}
+{{- if .IsExtra}}
+  └─ [app] {{.Name}}  (external)
+{{- else}}
+  └─ [app] {{.Name}}  ({{.Mode}})
+  {{- range .Children}}{{renderChild . 2}}{{end}}
+{{- end}}
+{{- end}}
+{{- range .Processes}}
+  └─ [process] {{.Name}}
+{{- end}}
+```
 
-#### Used command
+## File layout
 
-This project has been generated with the `ergo` tool. To install this tool, use the following command:
+`*_gen.go` files are regenerated on every `ergo generate` or `ergo add`. Do not edit them.
+Edit only the plain `.go` counterpart.
 
-`$ go install ergo.services/tools/ergo@latest`
+```
+cmd/
+  main_gen.go     node startup, application list        [generated]
+  main.go         extraApps() hook for custom apps
+{{- range .Apps}}{{if .IsExtra}}{{else}}
+apps/{{loName .Name}}/
+  {{loName .Name}}_gen.go  CreateApp, Load with Group   [generated]
+  {{loName .Name}}.go      Tune, Start, Terminate
+{{- end}}{{- end}}
+```
 
-Below the command that was used to generate this project:
+## Adding components
 
-```$ {{ index .Params "args" }} ```
+```bash
+# actor inside a supervisor
+ergo add actor <SupervisorName>:MyActor
+
+# pool actor inside a supervisor
+ergo add actor --pool <SupervisorName>:MyPool
+
+# supervisor inside an app or another supervisor
+ergo add supervisor <ParentName>:MySup --type one_for_one --strategy transient
+
+# new application
+ergo add app MyApp --mode transient
+
+# network message type (EDF serialization)
+# field types: string, int, []byte, gen.Alias, gen.PID, ...
+ergo add message MyMessage --field ID:gen.Alias --field Data:string
+```
+
+## Key concepts
+
+**Actor** is an isolated process that handles async messages (`HandleMessage`)
+and sync calls (`HandleCall`). A crash in one actor does not affect others.
+[docs](https://docs.ergo.services/basics/actors)
+
+**Supervisor** monitors children and restarts them on failure.
+Strategies: `one_for_one`, `all_for_one`, `rest_for_one`.
+Restart policies: `transient`, `permanent`, `temporary`.
+[docs](https://docs.ergo.services/basics/supervisors)
+
+**Application** is a named group of supervised processes with lifecycle
+callbacks `Load`, `Start`, `Terminate`. Customize spec in `Tune`.
+[docs](https://docs.ergo.services/basics/applications)
+
+**Pool** distributes messages across a fixed set of worker processes.
+Workers are restarted automatically.
+[docs](https://docs.ergo.services/basics/pool)
+
+**EDF messages** provide typed network serialization. Never reorder or remove
+registered types. Doing so breaks wire compatibility with running nodes.
+[docs](https://docs.ergo.services/networking/edf)
+
+## Updating after editing ergo.yaml
+
+```
+ergo generate
+```

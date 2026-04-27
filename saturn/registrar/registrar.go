@@ -60,10 +60,12 @@ func (r *Registrar) Init(args ...any) error {
 
 	// create meta tcp server
 	tcpOptions := meta.TCPServerOptions{
-		Port:            port,
-		Host:            host,
-		CertManager:     r.Node().CertManager(),
-		KeepAlivePeriod: time.Second * 3,
+		Port:        port,
+		Host:        host,
+		CertManager: r.Node().CertManager(),
+		Advanced: meta.TCPAdvancedOptions{
+			KeepAlivePeriod: time.Second * 3,
+		},
 	}
 
 	metatcp, err := meta.CreateTCPServer(tcpOptions)
@@ -113,11 +115,11 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 					// try one more time in a second
 					r.SendAfter(NameStorage, StorageUnregister{Cluster: conn.cluster, Node: conn.node}, time.Second)
 				}
-				delete(r.conns, m.ID)
-				delete(r.chunks, m.ID)
 				r.Log().Info("unregistered node %s in cluster %q (terminated meta-process: %s)", conn.node, conn.cluster, m.ID)
 				r.broadcast(saturn.MessageNodeLeft{Node: conn.node}, conn.cluster, conn.node)
 			}
+			delete(r.conns, m.ID)
+			delete(r.chunks, m.ID)
 		}
 
 	case meta.MessageTCP:
@@ -256,6 +258,7 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 		}
 		if conn.state != connStateRegistered {
 			r.SendExitMeta(m.ID, errTooSlow)
+			// conns/chunks cleanup happens in MessageTCPDisconnect
 			return nil
 		}
 
@@ -273,19 +276,23 @@ func (r *Registrar) HandleMessage(from gen.PID, message any) error {
 
 		if err := edf.Encode(update, buf, edf.Options{}); err != nil {
 			r.Log().Error("unable to encode config update message: %s", err)
+			lib.ReleaseBuffer(buf)
 			return nil
 		}
 
 		binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
-		msg := meta.MessageTCP{
-			Data: buf.B,
-		}
+
+		// copy data before releasing the buffer — SendAlias is async
+		data := make([]byte, buf.Len())
+		copy(data, buf.B)
+		lib.ReleaseBuffer(buf)
+
 		for mp, conn := range r.conns {
 			if m.all == false && m.cluster != conn.cluster {
 				continue
 			}
 			if m.node == "*" || gen.Atom(m.node) == conn.node {
-				r.SendAlias(mp, msg)
+				r.SendAlias(mp, meta.MessageTCP{ID: mp, Data: data})
 			}
 		}
 
@@ -333,6 +340,7 @@ func (r *Registrar) handleHandshake(mp gen.Alias, message saturn.MessageHandshak
 	}
 
 	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
 
 	buf.Allocate(4)
 	buf.B[0] = saturn.Proto
@@ -343,11 +351,9 @@ func (r *Registrar) handleHandshake(mp gen.Alias, message saturn.MessageHandshak
 	}
 
 	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
-	reply := meta.MessageTCP{
-		ID:   mp,
-		Data: buf.B,
-	}
-	return r.SendAlias(mp, reply)
+	data := make([]byte, buf.Len())
+	copy(data, buf.B)
+	return r.SendAlias(mp, meta.MessageTCP{ID: mp, Data: data})
 }
 
 func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister) error {
@@ -397,15 +403,16 @@ func (r *Registrar) handleRegister(mp gen.Alias, message saturn.MessageRegister)
 	buf.B[1] = saturn.ProtoVersion
 
 	if err := edf.Encode(result, buf, edf.Options{}); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
-	reply := meta.MessageTCP{
-		ID:   mp,
-		Data: buf.B,
-	}
-	if err := r.SendAlias(mp, reply); err != nil {
+	data := make([]byte, buf.Len())
+	copy(data, buf.B)
+	lib.ReleaseBuffer(buf)
+
+	if err := r.SendAlias(mp, meta.MessageTCP{ID: mp, Data: data}); err != nil {
 		return err
 	}
 
@@ -503,6 +510,7 @@ func (r *Registrar) handleResolveProxy(
 
 func (r *Registrar) broadcast(message any, cluster string, skip gen.Atom) {
 	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
 
 	buf.Allocate(4)
 	buf.B[0] = saturn.Proto
@@ -514,9 +522,11 @@ func (r *Registrar) broadcast(message any, cluster string, skip gen.Atom) {
 	}
 
 	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
-	msg := meta.MessageTCP{
-		Data: buf.B,
-	}
+
+	// copy data before releasing the buffer — SendAlias is async
+	data := make([]byte, buf.Len())
+	copy(data, buf.B)
+
 	for mp, conn := range r.conns {
 		if conn.cluster != cluster {
 			continue
@@ -527,6 +537,6 @@ func (r *Registrar) broadcast(message any, cluster string, skip gen.Atom) {
 		if conn.state != connStateRegistered {
 			continue
 		}
-		r.SendAlias(mp, msg)
+		r.SendAlias(mp, meta.MessageTCP{ID: mp, Data: data})
 	}
 }

@@ -11,7 +11,7 @@ import (
 	"ergo.services/ergo/lib"
 	"ergo.services/logger/colored"
 
-	"ergo.services/tools/saturn/registrar"
+	"ergo.tools/saturn/registrar"
 )
 
 var (

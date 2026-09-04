@@ -6,6 +6,6 @@ var (
 	Version = gen.Version{
 		Name:    "Saturn ERDS",
 		Release: "R1",
-		License: gen.LicenseBSL1,
+		License: gen.LicenseMIT,
 	}
 )

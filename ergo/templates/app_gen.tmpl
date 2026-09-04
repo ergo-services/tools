@@ -7,7 +7,7 @@ func Create{{.Name}}() gen.ApplicationBehavior {
 	return &{{.Name}}{}
 }
 
-func (app *{{.Name}}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *{{.Name}}) Load(args ...any) (gen.ApplicationSpec, error) {
 	spec := gen.ApplicationSpec{
 		Name: "{{.LoName}}",
 		Mode: {{.Mode}},
@@ -15,5 +15,5 @@ func (app *{{.Name}}) Load(node gen.Node, args ...any) (gen.ApplicationSpec, err
 {{range .TopChildren}}			{Name: "{{loName .Name}}", Factory: factory_{{.Name}}},
 {{end}}		},
 	}
-	return app.Tune(node, spec, args...)
+	return a.Tune(spec, args...)
 }

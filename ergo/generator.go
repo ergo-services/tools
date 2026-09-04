@@ -22,7 +22,6 @@ func loadTemplates() (*template.Template, error) {
 	return tmpl.ParseFS(templateFS, "templates/*.tmpl")
 }
 
-
 // renderChildTree renders a single child node as an ASCII tree line.
 func renderChildTree(c ChildSpec, indent int) string {
 	prefix := strings.Repeat("  ", indent)

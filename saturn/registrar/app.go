@@ -1,6 +1,7 @@
 package registrar
 
 import (
+	"ergo.services/ergo/app"
 	"ergo.services/ergo/gen"
 )
 
@@ -15,16 +16,17 @@ type Options struct {
 }
 
 type RegistrarApp struct {
+	app.Application
 	options Options
 }
 
 // Load invoked on loading application using method ApplicationLoad of gen.Node interface.
-func (app *RegistrarApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *RegistrarApp) Load(args ...any) (gen.ApplicationSpec, error) {
 
 	env := make(map[gen.Env]any)
-	env[ENV_CONFIG_PATH] = app.options.ConfigPath
-	env[ENV_REGISTRAR_PORT] = app.options.RegistrarPort
-	env[ENV_REGISTRAR_HOST] = app.options.RegistrarHost
+	env[ENV_CONFIG_PATH] = a.options.ConfigPath
+	env[ENV_REGISTRAR_PORT] = a.options.RegistrarPort
+	env[ENV_REGISTRAR_HOST] = a.options.RegistrarHost
 
 	return gen.ApplicationSpec{
 		Name:        "registrar_app",
@@ -39,9 +41,3 @@ func (app *RegistrarApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, 
 		},
 	}, nil
 }
-
-// Start invoked once the application started
-func (app *RegistrarApp) Start(mode gen.ApplicationMode) {}
-
-// Terminate invoked once the application stopped
-func (app *RegistrarApp) Terminate(reason error) {}

@@ -200,7 +200,7 @@ node:
             - actor: MyActor
             - actor: MyPool
               pool: true
-    - observer             # known extras: observer, mcp, radar
+    - observer             # known extras: observer, radar
   processes:
     - actor: StandaloneActor
   messages:

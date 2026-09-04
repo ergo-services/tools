@@ -54,10 +54,12 @@ Usage:
   ergo <command> [arguments]
 
 Commands:
-  init <NodeName> <module>
+  init [--no-observer] <NodeName> <module>
         Create a new project. Generates ergo.yaml, go.mod and all
         boilerplate files. NodeName is the Erlang-style node name
         (e.g. MyNode), module is the Go module path (e.g. github.com/org/repo).
+        The observer application is included by default, serving the web UI
+        and the agent interface on localhost:9911. --no-observer leaves it out.
 
   add actor [--pool] <[Parent:]Name>
         Add an actor to the project. Parent is the name of an existing
@@ -98,13 +100,16 @@ Examples:
 `)
 }
 
-// cmdInit implements "ergo init <NodeName> <module>".
+// cmdInit implements "ergo init [--no-observer] <NodeName> <module>".
 func cmdInit(args []string) error {
-	if len(args) < 2 {
-		return fmt.Errorf("usage: ergo init <NodeName> <module>")
+	withExtras := hasBoolFlag(args, "--no-observer") == false
+
+	positional := positionalArgs(args)
+	if len(positional) < 2 {
+		return fmt.Errorf("usage: ergo init [--no-observer] <NodeName> <module>")
 	}
-	nodeName := args[0]
-	module := args[1]
+	nodeName := positional[0]
+	module := positional[1]
 
 	// derive output directory from module name (last path element)
 	parts := strings.Split(module, "/")
@@ -153,6 +158,12 @@ func cmdInit(args []string) error {
 		},
 	}
 
+	if withExtras == true {
+		for _, name := range defaultExtras {
+			proj.Node.Apps = append(proj.Node.Apps, AppSpec{Extra: name})
+		}
+	}
+
 	yamlPath := filepath.Join(outputDir, "ergo.yaml")
 	if err := writeProject(yamlPath, proj); err != nil {
 		return err
@@ -164,7 +175,24 @@ func cmdInit(args []string) error {
 
 	fmt.Printf("Project created in %s\n", outputDir)
 	fmt.Printf("Run: cd %s && go run ./cmd\n", dirName)
+	for _, app := range proj.Node.Apps {
+		info, ok := knownExtras[app.Extra]
+		if ok == true && info.Hint != "" {
+			fmt.Println(info.Hint)
+		}
+	}
 	return nil
+}
+
+// positionalArgs returns the arguments that are not flags, in order.
+func positionalArgs(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--") == false {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // cmdAdd implements "ergo add <kind> ...".

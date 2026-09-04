@@ -1,0 +1,4 @@
+# The built binary. Installed with:
+#
+#	go install ergo.tools/argus@latest
+argus

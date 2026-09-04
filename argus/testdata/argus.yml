@@ -1,0 +1,20 @@
+# Test configuration. Discovery finds it by walking up from a fixture file and
+# stopping at the module's go.mod, so the tests exercise the real discovery path
+# rather than injecting a config object.
+#
+# Every tier is raised to error because analysistest asserts on diagnostics, and
+# the warn tier is delivered to stdout by design. The delivery policy itself is
+# covered directly in ergomodel's tests rather than through a fixture.
+version: 1
+tiers:
+  tier1: error
+  tier2: error
+  tier3: error
+
+# A configured list replaces the defaults, so the two entries the fixtures depend
+# on are named here explicitly. The first also carries a comma in its reason,
+# which is what the parser has to survive.
+allow:
+  types:
+    - { path: "[]byte", reason: payload, ownership transferred by convention }
+    - { path: time.Time, reason: Location is a shared immutable singleton }

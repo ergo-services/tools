@@ -84,6 +84,6 @@ func (c *ChildSpec) Name() string {
 
 // MessageSpec describes a message type with its fields.
 type MessageSpec struct {
-	Name   string               `yaml:"name"`
-	Fields []map[string]string  `yaml:"fields"`
+	Name   string              `yaml:"name"`
+	Fields []map[string]string `yaml:"fields"`
 }

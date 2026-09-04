@@ -1,21 +1,39 @@
 package {{.Package}}
 
-import "ergo.services/ergo/gen"
+import (
+	"ergo.services/ergo/app"
+	"ergo.services/ergo/gen"
+)
 
-type {{.Name}} struct{}
+// {{.Name}} embeds app.Application, which provides PreLoad and no-op defaults
+// for the lifecycle callbacks below. Never override PreLoad.
+type {{.Name}} struct {
+	app.Application
+}
 
 // Tune is called from Load and lets you customize the ApplicationSpec before
 // the application starts. Set Env, Depends, Tags, Version, Description,
 // Weight, or Map here. The Group (process list) is managed by the generated
 // Load. Do not modify it here unless you have a specific reason.
 // See https://docs.ergo.services/basics/applications
-func (app *{{.Name}}) Tune(node gen.Node, spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
+func (a *{{.Name}}) Tune(spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
 	return spec, nil
 }
 
-// Start is called once all processes in Group have started successfully.
-func (app *{{.Name}}) Start(mode gen.ApplicationMode) {}
+// Init runs before any process in Group starts. Open here what those processes
+// need. A non-nil error aborts the start and Terminate is not called.
+// ref.IsAlive() == false means InitTimeout was exceeded.
+func (a *{{.Name}}) Init(ref gen.Ref, mode gen.ApplicationMode) error {
+	return nil
+}
 
-// Terminate is called when the application stops.
-// reason is gen.TerminateReasonNormal for a clean shutdown.
-func (app *{{.Name}}) Terminate(reason error) {}
+// Start runs once every process in Group has started successfully.
+func (a *{{.Name}}) Start(ref gen.Ref, mode gen.ApplicationMode) {}
+
+// Stop runs before the Group is stopped: drain, deregister, flush. It holds up
+// the shutdown until it returns or StopTimeout expires.
+func (a *{{.Name}}) Stop(ref gen.Ref, reason error) {}
+
+// Terminate runs once every process of the application is gone. Close here what
+// Init opened. reason is gen.TerminateReasonNormal for a clean shutdown.
+func (a *{{.Name}}) Terminate(reason error) {}

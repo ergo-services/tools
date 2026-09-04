@@ -11,14 +11,36 @@ type extraInfo struct {
 	Import string
 	Create string
 	Args   string
+
+	// Hint is printed once by "ergo init" when the extra is part of the
+	// generated project - typically the address its default options bind.
+	// Empty means the extra has nothing to say for itself.
+	Hint string
 }
 
 // knownExtras maps extra app short names to their metadata.
 var knownExtras = map[string]extraInfo{
-	"observer": {"ergo.services/application/observer", "CreateApp", "observer.Options{}"},
-	"mcp":      {"ergo.services/application/mcp", "CreateApp", "mcp.Options{}"},
-	"radar":    {"ergo.services/application/radar", "CreateApp", "radar.Options{}"},
+	// The observer serves the web UI, the API it runs on and the MCP surface for
+	// an AI agent, all on one listener. There is no separate "mcp" extra.
+	"observer": {
+		Import: "ergo.services/application/observer",
+		Create: "CreateApp",
+		Args:   "observer.Options{}",
+		Hint:   "Observer: http://localhost:9911 (MCP: http://localhost:9911/mcp)",
+	},
+	"radar": {
+		Import: "ergo.services/application/radar",
+		Create: "CreateApp",
+		Args:   "radar.Options{}",
+	},
 }
+
+// defaultExtras are added to a new project by "ergo init". The observer is
+// what makes a fresh node worth opening: it serves the web UI and the agent
+// interface, so "go run ./cmd" produces something to look at rather than a
+// node that only logs. Remove the entry from ergo.yaml and re-run
+// "ergo generate" to leave it out of an existing project.
+var defaultExtras = []string{"observer"}
 
 // supType maps YAML supervisor type strings to Go constants.
 func supType(t string) string {

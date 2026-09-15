@@ -1,0 +1,72 @@
+name: release
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  modules:
+    runs-on: ubuntu-latest
+    outputs:
+      list: ${{ steps.find.outputs.list }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          source .github/scripts/modules.sh
+          list=$(module_dirs | sed 's#^\./##' | jq -R -s -c 'split("\n")[:-1]')
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+          echo "$list"
+
+  test:
+    needs: modules
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.modules.outputs.list) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # the version each module declares, not the newest one: a module that says
+          # go 1.21 is claiming to build there, and nothing checks that claim if every
+          # job runs on stable. One module's directive must not decide for the others
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: ./.github/scripts/validate-versions.sh "origin/${{ github.base_ref }}" HEAD
+
+  tag:
+    if: github.event_name == 'push'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: base
+        run: |
+          base="${{ github.event.before }}"
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="HEAD~1"
+          fi
+          echo "ref=$base" >> "$GITHUB_OUTPUT"
+      - run: ./.github/scripts/tag-modules.sh "${{ steps.base.outputs.ref }}" HEAD

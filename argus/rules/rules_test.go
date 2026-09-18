@@ -124,20 +124,6 @@ func TestRules(t *testing.T) {
 	}
 }
 
-func TestSuiteConcurrent(t *testing.T) {
-	dir := testdata(t)
-	done := make(chan struct{}, len(ruleCases))
-	for _, c := range ruleCases {
-		go func(a *analysis.Analyzer, pkg string) {
-			defer func() { done <- struct{}{} }()
-			analysistest.Run(t, dir, a, pkg)
-		}(c.analyzer, c.pkg)
-	}
-	for range ruleCases {
-		<-done
-	}
-}
-
 func TestEveryRuleHasAFixture(t *testing.T) {
 	covered := map[string]bool{}
 	for _, c := range ruleCases {

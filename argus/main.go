@@ -12,10 +12,16 @@ import (
 	"ergo.tools/argus/rules"
 )
 
+const version = "0.2.0"
+
 func main() {
 
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "version", "--version", "-v":
+			fmt.Printf("argus version %s\n", version)
+			fmt.Println("docs: https://docs.ergo.services/tools/argus")
+			return
 		case "help":
 			help(os.Args[2:])
 			return
@@ -127,7 +133,8 @@ func help(args []string) {
 		}
 		fmt.Printf("  %-14s %s\n", a.Name, title)
 	}
-	fmt.Println("\nargus help <rule>   full documentation for one rule")
+	fmt.Println("\nargus version       the version of this build")
+	fmt.Println("argus help <rule>   full documentation for one rule")
 	fmt.Println("argus baseline      read a keyed run on stdin, write a baseline file")
 	fmt.Println("go vet -vettool=$(which argus) ./...")
 }

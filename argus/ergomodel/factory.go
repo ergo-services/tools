@@ -185,13 +185,25 @@ func (m *Model) initBudget(decl *ast.FuncDecl) (blocks bool, why string, timeout
 	return true, b.Why, b.Timeout, FuncID(obj)
 }
 
+func (m *Model) SentinelReturn(decl *ast.FuncDecl) (string, string, token.Pos) {
+	return m.sentinelReturn(decl, map[*types.Func]bool{})
+}
+
 func (m *Model) initSentinel(decl *ast.FuncDecl) string {
-	found := ""
+	name, _, _ := m.sentinelReturn(decl, map[*types.Func]bool{})
+	return name
+}
+
+func (m *Model) sentinelReturn(decl *ast.FuncDecl, seen map[*types.Func]bool) (string, string, token.Pos) {
+	if decl == nil || decl.Body == nil {
+		return "", "", token.NoPos
+	}
+	found, via, at := "", "", token.NoPos
+
 	ast.Inspect(decl.Body, func(n ast.Node) bool {
 		if found != "" {
 			return false
 		}
-
 		if _, ok := n.(*ast.FuncLit); ok {
 			return false
 		}
@@ -200,12 +212,43 @@ func (m *Model) initSentinel(decl *ast.FuncDecl) string {
 			return true
 		}
 		if name := m.frameworkSentinel(ret.Results[0]); name != "" {
-			found = name
+			found, at = name, ret.Pos()
+			return false
+		}
+
+		call, ok := ret.Results[0].(*ast.CallExpr)
+		if ok == false {
+			return true
+		}
+		callee := m.plainOrMethodCallee(call)
+		if callee == nil || seen[callee] == true {
+			return true
+		}
+		seen[callee] = true
+		name, deeper, _ := m.sentinelReturn(m.declOf[callee], seen)
+		if name != "" {
+			found, at = name, ret.Pos()
+			via = callee.Name()
+			if deeper != "" {
+				via += " -> " + deeper
+			}
 			return false
 		}
 		return true
 	})
-	return found
+	return found, via, at
+}
+
+func (m *Model) plainOrMethodCallee(call *ast.CallExpr) *types.Func {
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		fn, _ := m.pass.TypesInfo.Uses[fun.Sel].(*types.Func)
+		return fn
+	case *ast.Ident:
+		fn, _ := m.pass.TypesInfo.Uses[fun].(*types.Func)
+		return fn
+	}
+	return nil
 }
 
 func (m *Model) frameworkSentinel(e ast.Expr) string {

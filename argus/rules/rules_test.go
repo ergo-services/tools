@@ -15,6 +15,7 @@ import (
 	"ergo.tools/argus/rules/behaviorspec"
 	"ergo.tools/argus/rules/callbackblocking"
 	"ergo.tools/argus/rules/callbackgoroutine"
+	"ergo.tools/argus/rules/callbackreentry"
 	"ergo.tools/argus/rules/callbackroundtrip"
 	"ergo.tools/argus/rules/callbudget"
 	"ergo.tools/argus/rules/deferredidentity"
@@ -40,6 +41,7 @@ import (
 	"ergo.tools/argus/rules/registration"
 	"ergo.tools/argus/rules/registrylist"
 	"ergo.tools/argus/rules/selfrequest"
+	"ergo.tools/argus/rules/sendreason"
 	"ergo.tools/argus/rules/spawnargs"
 	"ergo.tools/argus/rules/stategate"
 	"ergo.tools/argus/rules/supervisorspec"
@@ -97,7 +99,9 @@ var ruleCases = []struct {
 	{ownstatesend.Analyzer, "a1006"},
 	{nodesend.Analyzer, "a1012"},
 	{deferredidentity.Analyzer, "a2016"},
+	{callbackreentry.Analyzer, "a1013"},
 	{initsentinel.Analyzer, "a2017"},
+	{sendreason.Analyzer, "a2029"},
 	{eventnotify.Analyzer, "a2018"},
 	{messagemarker.Analyzer, "a3001"},
 	{registrylist.Analyzer, "a3003"},

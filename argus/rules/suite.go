@@ -9,6 +9,7 @@ import (
 	"ergo.tools/argus/rules/behaviorspec"
 	"ergo.tools/argus/rules/callbackblocking"
 	"ergo.tools/argus/rules/callbackgoroutine"
+	"ergo.tools/argus/rules/callbackreentry"
 	"ergo.tools/argus/rules/callbackroundtrip"
 	"ergo.tools/argus/rules/callbudget"
 	"ergo.tools/argus/rules/deferredidentity"
@@ -34,6 +35,7 @@ import (
 	"ergo.tools/argus/rules/registration"
 	"ergo.tools/argus/rules/registrylist"
 	"ergo.tools/argus/rules/selfrequest"
+	"ergo.tools/argus/rules/sendreason"
 	"ergo.tools/argus/rules/spawnargs"
 	"ergo.tools/argus/rules/stategate"
 	"ergo.tools/argus/rules/supervisorspec"
@@ -57,6 +59,8 @@ func Suite() []*analysis.Analyzer {
 
 		messagealiasing.Analyzer,
 		callbackblocking.Analyzer,
+		callbackreentry.Analyzer,
+		sendreason.Analyzer,
 		selfrequest.Analyzer,
 		callbackgoroutine.Analyzer,
 		metastateshare.Analyzer,

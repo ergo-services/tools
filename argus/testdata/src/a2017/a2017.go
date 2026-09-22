@@ -71,3 +71,23 @@ func (r *Recorded) Init(args ...any) error {
 	r.Spawn(factories.FactoryOwned, gen.ProcessOptions{})
 	return nil
 }
+
+// the sentinel one frame away is the same convention, and the shape that hides it: the
+// helper is an ordinary one, and only the path through Init turns its return into a
+// spawn failure
+type Indirect struct {
+	act.Supervisor
+}
+
+func (i *Indirect) Init(args ...any) error {
+	return i.start() // want `A2017.*Init returns gen.TerminateReasonNormal through start as its error`
+}
+
+func (i *Indirect) start() error {
+	if i.stop() {
+		return gen.TerminateReasonNormal
+	}
+	return nil
+}
+
+func (i *Indirect) stop() bool { return true }

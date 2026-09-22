@@ -2,7 +2,6 @@ package initsentinel
 
 import (
 	"go/ast"
-	"go/token"
 	"strings"
 
 	"golang.org/x/tools/go/analysis"
@@ -46,7 +45,7 @@ func run(pass *analysis.Pass) (any, error) {
 		if cb.Kind != ergomodel.CBInit || cb.Meta {
 			continue
 		}
-		sentinel, pos := returnedSentinel(pass, cb.Decl)
+		sentinel, via, pos := m.SentinelReturn(cb.Decl)
 		if sentinel == "" {
 			continue
 		}
@@ -55,8 +54,8 @@ func run(pass *analysis.Pass) (any, error) {
 				Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
 				ID: ergomodel.CallbackID(cb), Witness: sentinel,
 			},
-			"Init returns %s as its error, which is the spawn failure channel rather than a termination reason, so every caller has to know that this particular error means success",
-			sentinel)
+			"Init returns %s%s as its error, which is the spawn failure channel rather than a termination reason, so every caller has to know that this particular error means success",
+			sentinel, through(via))
 	}
 
 	for _, point := range m.SpawnPoints() {
@@ -86,42 +85,11 @@ func run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-func returnedSentinel(pass *analysis.Pass, decl *ast.FuncDecl) (string, token.Pos) {
-	name, pos := "", decl.Pos()
-	ast.Inspect(decl.Body, func(n ast.Node) bool {
-		if name != "" {
-			return false
-		}
-		if _, ok := n.(*ast.FuncLit); ok {
-			return false
-		}
-		ret, ok := n.(*ast.ReturnStmt)
-		if ok == false || len(ret.Results) != 1 {
-			return true
-		}
-		if s := sentinelName(pass, ret.Results[0]); s != "" {
-			name, pos = s, ret.Pos()
-			return false
-		}
-		return true
-	})
-	return name, pos
-}
-
-func sentinelName(pass *analysis.Pass, e ast.Expr) string {
-	sel, ok := e.(*ast.SelectorExpr)
-	if ok == false {
+func through(via string) string {
+	if via == "" {
 		return ""
 	}
-	obj := pass.TypesInfo.Uses[sel.Sel]
-	if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != "ergo.services/ergo/gen" {
-		return ""
-	}
-
-	if strings.HasPrefix(sel.Sel.Name, "TerminateReason") {
-		return "gen." + sel.Sel.Name
-	}
-	return ""
+	return " through " + via
 }
 
 func mentions(pass *analysis.Pass, decl *ast.FuncDecl, sentinel string) bool {

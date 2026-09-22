@@ -90,6 +90,7 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 | **A1010** | A goroutine with no recover boundary reachable from a callback. A panic there takes the node down instead of one process, and supervision never gets a say. | `go doWork()` |
 | **A1011** | A blocking request in `Init` against the init budget. Both default to five seconds, so the spawner kills the process and returns `ErrTimeout` while `Init` keeps running. The verdict travels on the factory object. | `Init(){ a.Call(x, r) }` |
 | **A1012** | `Node().Send` or `Node().Call` from inside a callback. The node routes on its own behalf, so the actor never enters `WaitResponse` and reports itself as Running for the whole wait. | `a.Node().Call(to, req)` |
+| **A1013** | A cycle among the behavior's own methods, reachable from a callback. Recursion in a callback grows the goroutine stack, and a stack overflow is a fatal runtime error: `recover` does not see it, `Terminate` does not run, and the node goes down with every process on it. A self send does not make a stuck loop finish, it returns the fault to where supervision can act. | `func (a *A) step() error { return a.decide() }` |
 
 ### Tier 2 - the framework contract
 
@@ -123,6 +124,7 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 | **A2026** | A call the runtime rejects on its arguments, whatever the state: an exit signal to self, parent or leader, a nil termination reason, a compression threshold below the floor, an enum value out of range, a self link or monitor, an address whose type is none of `gen.PID`, `gen.ProcessID`, `gen.Alias` or `gen.Atom`. | `a.Send("worker", msg)` |
 | **A2027** | A meta `Start` that returns without blocking. The meta ends when `Start` returns, so the alias `SpawnMeta` just handed back is already dead. | `Start() error { return nil }` |
 | **A2028** | A request inside `HandleCall` whose budget is not smaller than the caller's. The caller is waiting on its own default five seconds, so the inner wait can outlast the outer one and the reply lands after the caller gave up. An actor also handles one message at a time, so a pool of workers in front of one such handler serialises and every request past the first blows its budget queueing. | `HandleCall(...) { return a.Call(peer, req) }` |
+| **A2029** | A callback returning the error of a send to another process, directly or through its own helpers. The callback's error is the termination reason, so this process stops whenever that peer is gone - the ordinary condition in a distributed system. A shared actor takes its in-memory state with it. | `return a.Send(caller, result)` |
 
 ### Tier 3 - hygiene, off by default
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	_ "embed"
 	"fmt"
 	"os"
 	"strings"
@@ -12,7 +13,10 @@ import (
 	"ergo.tools/argus/rules"
 )
 
-const version = "0.2.0"
+//go:embed VERSION
+var versionFile string
+
+var version = strings.TrimPrefix(strings.TrimSpace(versionFile), "v")
 
 func main() {
 

@@ -1,13 +1,17 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-const version = "3.1.0"
+//go:embed VERSION
+var versionFile string
+
+var version = strings.TrimPrefix(strings.TrimSpace(versionFile), "v")
 
 func main() {
 	args := os.Args[1:]

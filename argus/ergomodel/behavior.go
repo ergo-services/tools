@@ -50,6 +50,9 @@ type SpawnSite struct {
 	Method string
 	Args   []ast.Expr
 	In     *Callback
+	Decl   *ast.FuncDecl
+
+	Origins []Origin
 }
 
 var spawnMethods = map[string]int{

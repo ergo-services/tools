@@ -18,11 +18,6 @@ type WireErrorSite struct {
 
 func (m *Model) WireErrorSites() []*WireErrorSite { return m.wireErrorSites }
 
-var responseErrorMethods = map[string]bool{
-	"SendResponseError":          true,
-	"SendResponseErrorImportant": true,
-}
-
 func (m *Model) buildWireErrorSites(decls []*ast.FuncDecl) {
 	byDecl := map[*ast.FuncDecl]*Callback{}
 	for _, cb := range m.Callbacks {
@@ -80,9 +75,8 @@ func (m *Model) buildWireErrorSites(decls []*ast.FuncDecl) {
 			if isFunc == false {
 				return true
 			}
-			if responseErrorMethods[fn.Name()] && fn.Pkg() != nil &&
-				strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) && len(call.Args) > 2 {
-				add(call.Args[2], "answered to a request with "+fn.Name(), "", cb, decl)
+			if idx, isResponder := m.errorResponseArg(fn); isResponder && idx < len(call.Args) {
+				add(call.Args[idx], "answered to a request with "+fn.Name(), "", cb, decl)
 				return true
 			}
 

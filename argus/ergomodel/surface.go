@@ -3,6 +3,7 @@ package ergomodel
 import (
 	"go/ast"
 	"go/types"
+	"strconv"
 	"strings"
 )
 
@@ -67,8 +68,17 @@ func defaultCallbacks() []CallbackSurface {
 }
 
 func defaultSenders() []SenderSurface {
-	const proc = "ergo.services/ergo/gen.Process"
+	const (
+		proc = "ergo.services/ergo/gen.Process"
+		meta = "ergo.services/ergo/gen.MetaProcess"
+		node = "ergo.services/ergo/gen.Node"
+		nreg = "ergo.services/ergo/gen.NodeRegistrar"
+		conn = "ergo.services/ergo/gen.Connection"
+		core = "ergo.services/ergo/gen.Core"
+		ctm  = "ergo.services/ergo/gen.CoreTargetManager"
+	)
 	return []SenderSurface{
+
 		{Recv: proc, Method: "Send", Param: 1},
 		{Recv: proc, Method: "SendAlias", Param: 1},
 		{Recv: proc, Method: "SendPID", Param: 1},
@@ -89,18 +99,167 @@ func defaultSenders() []SenderSurface {
 		{Recv: proc, Method: "CallPID", Param: 1},
 		{Recv: proc, Method: "CallProcessID", Param: 1},
 		{Recv: proc, Method: "CallAlias", Param: 1},
+
+		{Recv: meta, Method: "Send", Param: 1},
+		{Recv: meta, Method: "SendWithPriority", Param: 1},
+		{Recv: meta, Method: "SendAfter", Param: 1},
+		{Recv: meta, Method: "SendWithPriorityAfter", Param: 1},
+		{Recv: meta, Method: "SendEvery", Param: 1},
+		{Recv: meta, Method: "SendWithPriorityEvery", Param: 1},
+		{Recv: meta, Method: "SendResponse", Param: 2},
+
+		{Recv: node, Method: "Send", Param: 1},
+		{Recv: node, Method: "SendWithPriority", Param: 1},
+		{Recv: node, Method: "SendEvent", Param: 3},
+		{Recv: node, Method: "Call", Param: 1},
+		{Recv: node, Method: "CallWithTimeout", Param: 1},
+		{Recv: node, Method: "CallWithPriority", Param: 1},
+		{Recv: node, Method: "CallImportant", Param: 1},
+		{Recv: node, Method: "CallPID", Param: 1},
+		{Recv: node, Method: "CallProcessID", Param: 1},
+		{Recv: node, Method: "CallAlias", Param: 1},
+		{Recv: nreg, Method: "SendEvent", Param: 3},
+
+		{Recv: conn, Method: "SendPID", Param: 3},
+		{Recv: conn, Method: "SendProcessID", Param: 3},
+		{Recv: conn, Method: "SendAlias", Param: 3},
+		{Recv: conn, Method: "SendEvent", Param: 2},
+		{Recv: conn, Method: "SendResponse", Param: 3},
+		{Recv: conn, Method: "CallPID", Param: 3},
+		{Recv: conn, Method: "CallProcessID", Param: 3},
+		{Recv: conn, Method: "CallAlias", Param: 3},
+
+		{Recv: core, Method: "RouteSendPID", Param: 3},
+		{Recv: core, Method: "RouteSendProcessID", Param: 3},
+		{Recv: core, Method: "RouteSendAlias", Param: 3},
+		{Recv: core, Method: "RouteSendEvent", Param: 3},
+		{Recv: core, Method: "RouteSendResponse", Param: 3},
+		{Recv: core, Method: "RouteCallPID", Param: 3},
+		{Recv: core, Method: "RouteCallProcessID", Param: 3},
+		{Recv: core, Method: "RouteCallAlias", Param: 3},
+
+		{Recv: ctm, Method: "RouteSendPID", Param: 3},
+		{Recv: ctm, Method: "RouteSendEventMessages", Param: 3},
+		{Recv: ctm, Method: "RouteSendExitMessages", Param: 2},
 	}
 }
 
-func (m *Model) senderIndex() map[string]int {
-	if m.senders != nil {
-		return m.senders
+type senderKey struct {
+	recv   string
+	method string
+}
+
+type surfaceTable struct {
+	surfaces []SenderSurface
+	exact    map[senderKey]int
+	shapes   map[senderKey]int
+}
+
+func newSurfaceTable(surfaces []SenderSurface) *surfaceTable {
+	t := &surfaceTable{
+		surfaces: surfaces,
+		exact:    make(map[senderKey]int, len(surfaces)),
+		shapes:   map[senderKey]int{},
 	}
-	m.senders = make(map[string]int, len(m.cfg.Senders))
-	for _, s := range m.cfg.Senders {
-		m.senders[s.Method] = s.Param
+	for _, surface := range surfaces {
+		if surface.Recv == "" {
+			continue
+		}
+		t.exact[senderKey{recv: surface.Recv, method: surface.Method}] = surface.Param
+	}
+	return t
+}
+
+func (m *Model) param(t *surfaceTable, fn *types.Func) (int, bool) {
+	if idx, ok := t.exact[senderKey{recv: recvTypePath(fn), method: fn.Name()}]; ok {
+		return idx, true
+	}
+	sig, isSig := fn.Type().(*types.Signature)
+	if isSig == false {
+		return 0, false
+	}
+
+	key := senderKey{recv: strconv.Itoa(sig.Params().Len()), method: fn.Name()}
+	if param, ok := t.shapes[key]; ok {
+		return param, param >= 0
+	}
+
+	byArity := map[int]bool{}
+	byName := map[int]bool{}
+	for _, surface := range t.surfaces {
+		if surface.Method != fn.Name() {
+			continue
+		}
+		byName[surface.Param] = true
+		if m.surfaceArity(surface) == sig.Params().Len() {
+			byArity[surface.Param] = true
+		}
+	}
+
+	param := -1
+	if len(byArity) == 1 {
+		param = onlyKey(byArity)
+	} else if len(byName) == 1 {
+		param = onlyKey(byName)
+	}
+	t.shapes[key] = param
+	return param, param >= 0
+}
+
+func (m *Model) surfaceArity(surface SenderSurface) int {
+	if surface.Recv == "" {
+		return -1
+	}
+	iface := m.lookupInterface(surface.Recv)
+	if iface == nil {
+		return -1
+	}
+	for i := 0; i < iface.NumMethods(); i++ {
+		method := iface.Method(i)
+		if method.Name() != surface.Method {
+			continue
+		}
+		if sig, ok := method.Type().(*types.Signature); ok {
+			return sig.Params().Len()
+		}
+	}
+	return -1
+}
+
+func onlyKey(set map[int]bool) int {
+	for value := range set {
+		return value
+	}
+	return -1
+}
+
+func (m *Model) senderTable() *surfaceTable {
+	if m.senders == nil {
+		m.senders = newSurfaceTable(m.cfg.Senders)
 	}
 	return m.senders
+}
+
+var errorResponders = []SenderSurface{
+	{Recv: "ergo.services/ergo/gen.Process", Method: "SendResponseError", Param: 2},
+	{Recv: "ergo.services/ergo/gen.Process", Method: "SendResponseErrorImportant", Param: 2},
+	{Recv: "ergo.services/ergo/gen.MetaProcess", Method: "SendResponseError", Param: 2},
+	{Recv: "ergo.services/ergo/gen.Connection", Method: "SendResponseError", Param: 3},
+	{Recv: "ergo.services/ergo/gen.Core", Method: "RouteSendResponseError", Param: 3},
+}
+
+func (m *Model) errorResponderTable() *surfaceTable {
+	if m.responders == nil {
+		m.responders = newSurfaceTable(errorResponders)
+	}
+	return m.responders
+}
+
+func (m *Model) errorResponseArg(fn *types.Func) (int, bool) {
+	if fn.Pkg() == nil || strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) == false {
+		return 0, false
+	}
+	return m.param(m.errorResponderTable(), fn)
 }
 
 func (m *Model) callbackIndex() map[string]bool {
@@ -254,17 +413,25 @@ func (m *Model) sendPayload(call *ast.CallExpr) (ast.Expr, string, bool) {
 	if ok == false {
 		return nil, "", false
 	}
-	idx, ok := m.senderIndex()[fn.Name()]
+	idx, ok := m.senderParam(fn)
 	if ok == false {
-		return nil, "", false
-	}
-	if m.fromSenderSurface(fn) == false {
 		return nil, "", false
 	}
 	if idx >= len(call.Args) {
 		return nil, "", false
 	}
 	return call.Args[idx], fn.Name(), true
+}
+
+func (m *Model) senderParam(fn *types.Func) (int, bool) {
+	t := m.senderTable()
+	if idx, ok := t.exact[senderKey{recv: recvTypePath(fn), method: fn.Name()}]; ok {
+		return idx, true
+	}
+	if m.fromSenderSurface(fn) == false {
+		return 0, false
+	}
+	return m.param(t, fn)
 }
 
 func (m *Model) fromSenderSurface(fn *types.Func) bool {

@@ -26,7 +26,15 @@ line twice with two different fixes.
 Two payload forms count: the field itself, and a field of a composite literal payload.
 A slice expression or an index on a receiver field is deliberately not one, because
 that is A1007's question about memory escaping the owner, and a nested literal's own
-fields belong to that type rather than to this send.
+fields belong to that type rather than to this send. A field reached through a local
+is not a form this rule can see either, and it does not have to be: provenance carries
+the verdict to A1001, which reports that site with the same tier.
+
+The tier is whether the owner writes into that memory. A field the actor assigns into
+(f[k] = v, f = append(f, x), delete, clear, a write through an element) is a live race
+with the receiver and reports at tier 1. A field only ever replaced whole is a value
+nobody mutates once it is out, so it reports at tier 2: the sharing holds today, and
+only the type fails to say that it has to.
 
 The guardedness gate is the same as A1001's: a pointee that synchronizes its own
 state was shared on purpose. Spawn arguments are not this rule's surface at all,
@@ -51,14 +59,28 @@ func run(pass *analysis.Pass) (any, error) {
 		if share.Direct {
 			payload = "the payload"
 		}
+
+		tier, clause := verdict(m.OwnFieldMutated(site.In, share.Field), share.Field)
+
 		m.Report(pass, share.Pos,
 			ergomodel.Finding{
-				Rule: ruleID, Kind: ergomodel.KindShape, Tier: 1,
+				Rule: ruleID, Kind: ergomodel.KindShape, Tier: tier,
 				ID:      ergomodel.CallbackID(site.In) + ":" + share.Field,
 				Witness: share.Field,
 			},
-			"%s puts %s into %s, and %s is this actor's own state: the receiver reads it through %s while this actor's callbacks go on mutating it, and local delivery does not copy. Build a message out of what the receiver needs rather than handing over the field",
-			site.In.Name, share.Field, payload, share.Field, share.Witness)
+			"%s puts %s into %s, and %s is this actor's own state: the receiver reads it through %s, and local delivery does not copy. %s",
+			site.In.Name, share.Field, payload, share.Field, share.Witness, clause)
 	}
 	return nil, nil
+}
+
+func verdict(mutated bool, field string) (int, string) {
+	if mutated {
+		return 1, "This actor writes into " + field +
+			" elsewhere, so the receiver is reading memory that moves under it. Build a message" +
+			" out of what the receiver needs rather than handing over the field"
+	}
+	return 2, "This actor only ever replaces " + field +
+		" whole, so what the receiver holds is stable today and nothing but this reading says so." +
+		" Build a message out of what the receiver needs rather than handing over the field"
 }

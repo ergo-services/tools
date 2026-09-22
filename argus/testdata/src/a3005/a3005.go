@@ -11,31 +11,37 @@ type MessageSlice struct {
 
 type Worker struct {
 	act.Actor
-	pid gen.PID
+	pid   gen.PID
+	items []string
 }
 
+func (w *Worker) add(name string) { w.items = append(w.items, name) }
+
 func (w *Worker) HandleMessage(from gen.PID, message any) error {
+	// the directives below have to suppress a finding that is really there
+	items := w.items
+
 	// a reasoned exception is what the directive is for, and it is silent
 	//argus:allow A1001 the receiver owns the slice from here on
-	w.Send(w.pid, MessageSlice{})
+	w.Send(w.pid, MessageSlice{Items: items})
 
 	// No reason at all is indistinguishable from silencing the tool. The expectation
 	// has to be a block comment: a line comment after the directive would become
 	// part of the reason, which is exactly what the rule reads.
 	/* want `\[tier3\] \[A3005\] an allow directive has no reason` */ //argus:allow A1001
-	w.Send(w.pid, MessageSlice{})
+	w.Send(w.pid, MessageSlice{Items: items})
 
 	// the blanket form needs a reason too
 	/* want `A3005.*an ignore directive has no reason` */ //argus:ignore
-	w.Send(w.pid, MessageSlice{})
+	w.Send(w.pid, MessageSlice{Items: items})
 
 	// the placeholder the quick fix emits, left as it was
 	/* want `A3005.*the reason is still the placeholder` */ //argus:allow A1001 <reason>
-	w.Send(w.pid, MessageSlice{})
+	w.Send(w.pid, MessageSlice{Items: items})
 
 	// an identifier that is not a rule in this build suppresses nothing
 	//argus:allow A9999 this rule does not exist // want `A3005.*A9999 is not a rule in this build`
-	w.Send(w.pid, MessageSlice{})
+	w.Send(w.pid, MessageSlice{Items: items})
 
 	// two ids on one statement are legitimate, and both are checked
 	//argus:allow A1004,A1010 the goroutine reads an immutable snapshot

@@ -79,12 +79,12 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 
 | Rule | What it reports | Shape |
 | --- | --- | --- |
-| **A1001** | A payload sharing mutable memory with its sender. Local delivery does not copy, so the receiver gets a reference to memory the sender still owns. Narrowed by guardedness: a pointee that synchronizes itself is not reported. | `p.Send(pid, Msg{Items: a.items})` |
+| **A1001** | A payload sharing mutable memory with its sender. Local delivery does not copy, so the receiver gets a reference to memory the sender still owns. Narrowed by guardedness, and tiered by provenance: memory built here and abandoned is a transfer of ownership and is not reported at all. | `items := a.items; p.Send(pid, Msg{Items: items})` |
 | **A1002** | An unbounded wait in a callback. `time.Sleep`, a naked `Lock`/`RLock`/`WaitGroup.Wait`, a channel operation outside a `select` with an escape hatch. Transitive through helpers. A framework request is bounded and is not reported. | `func (a *A) HandleMessage(...) { <-ch }` |
 | **A1003** | A request addressed to the caller's own registered name, `ProcessID` or alias. It lands in the caller's own mailbox while the caller waits for the reply, so it burns the full request timeout and returns `ErrTimeout`. | `a.Call(a.Name(), req)` |
 | **A1004** | A goroutine started in a callback that touches actor state. Actor fields are unsynchronized by design, and the process handle is actor-goroutine only. | `go func(){ a.n++ }()` |
 | **A1005** | A meta field mutated from both of a meta's two goroutines. Reported on a mutating access on each side, including a method call through a reference, which is the form no assignment-based model would see. | `Start(){ w.Write(b) }` + `HandleMessage(){ w.Flush() }` |
-| **A1006** | A send handing over a field of the sending actor's own state. Same hazard as A1001, different fix: the sender keeps mutating it, so copying at the send site papers over the sharing. | `a.Send(pid, Msg{Cache: a.cache})` |
+| **A1006** | A send handing over a field of the sending actor's own state. Same hazard as A1001, different fix: the sender keeps mutating it, so copying at the send site papers over the sharing. Tier 1 when the actor writes into that field, tier 2 when it only ever replaces it whole. | `a.Send(pid, Msg{Cache: a.cache})` |
 | **A1007** | A method returning memory derived from its receiver, handed to a send or a spawn. A reslice of an internal buffer read by another actor without the owner's lock. | `a.Send(pid, buf.Bytes())` |
 | **A1008** | `HandleCall` returning an error in the termination reason slot. It kills the process and sends no reply, so any peer with an unrecognized request can terminate the callee. | `return nil, gen.ErrUnsupported` |
 | **A1010** | A goroutine with no recover boundary reachable from a callback. A panic there takes the node down instead of one process, and supervision never gets a say. | `go doWork()` |
@@ -145,6 +145,43 @@ rule of your own.
 
 ---
 
+## Provenance - who still holds the memory
+
+Sharing a reference between actors is not a defect by itself. Handing the receiver a
+buffer built for it and then forgetting it transfers ownership, and it is what keeps an
+actor system off the allocator. What turns it into a defect is a second reference.
+
+So for the sharing rules the message type is only the filter, and the verdict comes from
+provenance of the payload at the send site. The model computes it once per send and every
+rule reads it:
+
+| Verdict | Meaning | Tier |
+| --- | --- | --- |
+| `transferred` | allocated in this callback and unreachable from the actor afterwards | no finding |
+| `received` | the payload arrived in a message and is forwarded on, so ownership stayed with whoever built it | 2 |
+| `unknown` | the payload came from a parameter this package cannot resolve, or a call whose result origin is not known | 2 |
+| `owned` | the payload is reachable from a field of the sending actor | 1 if the actor writes into that field, 2 if it only ever replaces the whole value |
+
+Two things make the verdict worth trusting.
+
+It is deep. A container built here whose elements are the actor's own pointers is `owned`,
+not `transferred`, and a `maps.Clone` of a map of pointers copies the map and not what its
+values point at. A clone of a map of values is a real copy and reports nothing.
+
+It crosses functions. Whether a call returns memory that is fresh, memory derived from one
+of its own parameters, or memory derived from its receiver travels as a fact on the
+function object, so a helper in another package resolves. For a send inside an unexported
+helper, the verdict is the worst provenance any caller in the package passes for that
+parameter; an exported helper stays `unknown`, because this package cannot see who calls
+it.
+
+What separates the two `owned` tiers is a write, not a reference. A field the actor assigns
+into (`f[k] = v`, `f = append(f, x)`, `delete`, `clear`, a write through an element) is a
+live race with the receiver. A field only ever replaced whole hands out a value nobody
+mutates afterwards: the sharing holds today, and only the type fails to say that it has to.
+
+---
+
 ## Configuration
 
 argus runs on sane defaults with no configuration at all. An `argus.yml` is discovered
@@ -199,9 +236,19 @@ surfaces:
     - { recv: "example.com/app/ports.OrderRepo", method: Save, why: a database round trip }
     - { recv: net/http.Client, method: Do, why: an HTTP round trip }
 
-  # Methods taking a message payload, with the argument index.
+  # Methods taking a message payload, with the argument index. A configured list
+  # REPLACES the built-in one, so a project adding its own bus names the framework
+  # surfaces it still wants alongside it.
+  #
+  # recv matters: one method name means different argument positions on different
+  # interfaces. gen.Process.SendEvent takes the payload third, gen.Node.SendEvent
+  # takes the routing options there and the payload fourth. An entry is matched on
+  # the receiver first; for a receiver no entry names, the tie between entries
+  # sharing a method name is broken on the arity of the call.
   senders:
     - { recv: "example.com/app/bus.Bus", method: Publish, param: 1 }
+    - { recv: ergo.services/ergo/gen.Process, method: Send, param: 1 }
+    - { recv: ergo.services/ergo/gen.Node, method: SendEvent, param: 3 }
 
   # Interfaces whose implementations are behaviors, and the callback names.
   callbacks:
@@ -363,13 +410,15 @@ done
 One analyzer builds the model in a single traversal per package and every rule reads it:
 callbacks and which behavior family they belong to, send and spawn sites, message shapes
 over two axes (does this share memory, would registration accept it), guardedness of the
-types behind a reference, resolved supervisor, router and pool options with per-field
+types behind a reference, provenance of every payload and which of the owner's fields are
+written into rather than replaced, resolved supervisor, router and pool options with per-field
 provenance, event registrations and subscriptions, factories and the init budget they
 carry, and the places an error value reaches another process.
 
 What one package cannot answer alone travels as a `go/analysis` fact on the object it is
 about: whether a function blocks and with what bound, whether it starts an unrecovered
-goroutine, whether it hands back memory derived from its receiver, whether it replies,
+goroutine, whether it hands back memory derived from its receiver or memory that is fresh, whether it
+replies,
 which parameters it forwards into a send, which behavior a factory returns and what its
 `Init` waits on, and whether it builds an `fmt.Errorf` value with a `%w` operand. That is
 what lets a rule report at the spawn site something that is only decidable inside the

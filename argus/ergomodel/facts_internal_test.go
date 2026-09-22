@@ -22,6 +22,10 @@ func populated() []analysis.Fact {
 		&UnrecoveredSpawnFact{},
 		&RecoversFact{},
 		&EscapesFact{Escapes: []Escape{{Result: 1, Field: "data"}}},
+		&ResultsFact{Results: []ResultOrigin{
+			{Kind: ResultFresh, Param: -1},
+			{Kind: ResultFromParam, Param: 2},
+		}},
 		&RepliesFact{},
 		&FactoryFact{Behavior: "example.com/app.Worker"},
 		&InitBudgetFact{Blocks: true, Why: "request", InnerTimeout: 7, Chain: "example.com/app.Worker.Init"},

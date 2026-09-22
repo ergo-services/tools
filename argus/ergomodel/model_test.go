@@ -103,6 +103,7 @@ func TestFactTypesAreComplete(t *testing.T) {
 		(*ergomodel.UnrecoveredSpawnFact)(nil),
 		(*ergomodel.RecoversFact)(nil),
 		(*ergomodel.EscapesFact)(nil),
+		(*ergomodel.ResultsFact)(nil),
 		(*ergomodel.RepliesFact)(nil),
 		(*ergomodel.FactoryFact)(nil),
 		(*ergomodel.InitBudgetFact)(nil),

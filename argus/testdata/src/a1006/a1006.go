@@ -36,15 +36,22 @@ type Manager struct {
 	reporter gen.PID
 }
 
+// The actor writes into orders, so a receiver holding it reads memory that moves.
+func (m *Manager) place(order *Order) { m.orders[order.ID] = order }
+
+// pending is only ever replaced whole, which is a different verdict.
+func (m *Manager) reset() { m.pending = nil }
+
 // The direct form: the field itself is the payload.
 func (m *Manager) HandleMessage(from gen.PID, message any) error {
-	m.Send(m.reporter, m.orders) // want `\[tier1\] \[A1006\] HandleMessage puts m.orders into the payload, and m.orders is this actor's own state`
+	m.Send(m.reporter, m.orders) // want `\[tier1\] \[A1006\] HandleMessage puts m.orders into the payload, and m.orders is this actor's own state.*writes into m.orders`
 
 	// A field of a composite literal payload.
-	m.Send(m.reporter, MessageSnapshot{Orders: m.orders, Taken: 1}) // want `A1006.*puts m.orders into this message`
+	m.Send(m.reporter, MessageSnapshot{Orders: m.orders, Taken: 1}) // want `\[tier1\] \[A1006\].*puts m.orders into this message`
 
-	// A slice field is the same hazard.
-	m.Send(m.reporter, m.pending) // want `A1006.*puts m.pending into the payload`
+	// A slice field the actor only ever replaces whole: the sharing holds today,
+	// and only this reading says so.
+	m.Send(m.reporter, m.pending) // want `\[tier2\] \[A1006\].*puts m.pending into the payload.*only ever replaces m.pending whole`
 
 	// A value field carries no reference, so there is nothing to share.
 	m.Send(m.reporter, m.total)
@@ -57,7 +64,8 @@ func (m *Manager) HandleMessage(from gen.PID, message any) error {
 	// A string is immutable.
 	m.Send(m.reporter, m.name)
 
-	// A freshly built map is not the actor's state: nothing else holds it.
+	// A map built here is not this actor's state, so no form of this rule sees it.
+	// It is not safe either, and that is A1001's finding on this same line.
 	snapshot := map[int64]*Order{}
 	for id, order := range m.orders {
 		snapshot[id] = order
@@ -68,7 +76,7 @@ func (m *Manager) HandleMessage(from gen.PID, message any) error {
 
 // A response is a send too.
 func (m *Manager) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-	m.SendResponse(from, ref, m.orders) // want `A1006.*HandleCall puts m.orders into the payload`
+	m.SendResponse(from, ref, m.orders) // want `\[tier1\] \[A1006\].*HandleCall puts m.orders into the payload`
 	return nil, nil
 }
 

@@ -41,10 +41,14 @@ func run(pass *analysis.Pass) (any, error) {
 		if strings.HasSuffix(pass.Fset.Position(site.Call.Pos()).Filename, "_test.go") {
 			continue
 		}
-		for _, arg := range site.Args {
+		for i, arg := range site.Args {
 			t := pass.TypesInfo.TypeOf(arg)
 			if t == nil {
 				continue
+			}
+			origin := ergomodel.Origin{Prov: ergomodel.ProvUnknown, Witness: "not resolved"}
+			if i < len(site.Origins) {
+				origin = site.Origins[i]
 			}
 
 			if types.IsInterface(types.Unalias(t)) {
@@ -78,14 +82,40 @@ func run(pass *analysis.Pass) (any, error) {
 				continue
 			}
 
+			if origin.Prov == ergomodel.ProvTransferred {
+				continue
+			}
+
+			tier, clause := verdict(origin)
 			m.Report(pass, arg.Pos(),
-				ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindShape, Tier: 2,
+				ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindShape, Tier: tier,
 					ID: ergomodel.TypeID(t), Witness: s.Witness},
-				"%s is passed to %s and shares unsynchronized memory with the parent: %s; the child runs on its own goroutine, so pass a copy or a type that guards itself",
-				typeName(t), site.Method, witness(s, t))
+				"%s is passed to %s and shares unsynchronized memory with the parent: %s; the child runs on its own goroutine, and %s",
+				typeName(t), site.Method, witness(s, t), clause)
 		}
 	}
 	return nil, nil
+}
+
+func verdict(origin ergomodel.Origin) (int, string) {
+	switch origin.Prov {
+	case ergomodel.ProvOwned:
+		if origin.Mutated {
+			return 1, "this argument reaches " + origin.Witness +
+				": the child reads that memory while the parent goes on writing into it. " +
+				"Pass a copy, or a type that guards itself"
+		}
+		return 2, "this argument reaches " + origin.Witness +
+			": the parent never writes into that memory, only swaps the whole value, so the " +
+			"sharing holds today and nothing in the type says it has to"
+
+	case ergomodel.ProvReceived:
+		return 2, "this argument is memory that " + origin.Witness +
+			": ownership stayed with whoever built it, so the child now shares with a third " +
+			"process this one cannot speak for"
+	}
+	return 2, "the origin of this argument does not resolve here (" + origin.Witness +
+		"), so the parent may still hold it"
 }
 
 func witness(s ergomodel.Shape, t types.Type) string {

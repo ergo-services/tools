@@ -52,6 +52,10 @@ type EscapesFact struct{ Escapes []Escape }
 
 func (*EscapesFact) AFact() {}
 
+type ResultsFact struct{ Results []ResultOrigin }
+
+func (*ResultsFact) AFact() {}
+
 type RepliesFact struct{}
 
 func (*RepliesFact) AFact() {}
@@ -100,6 +104,7 @@ var factTypes = []analysis.Fact{
 	(*UnrecoveredSpawnFact)(nil),
 	(*RecoversFact)(nil),
 	(*EscapesFact)(nil),
+	(*ResultsFact)(nil),
 	(*RepliesFact)(nil),
 	(*FactoryFact)(nil),
 	(*InitBudgetFact)(nil),

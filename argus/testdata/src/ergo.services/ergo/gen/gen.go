@@ -164,7 +164,7 @@ type Node interface {
 	Uptime() int64
 	Send(to any, message any) error
 	SendWithPriority(to any, message any, priority MessagePriority) error
-	SendEvent(name Atom, token Ref, message any) error
+	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
 	SendExit(pid PID, reason error) error
 	Call(to any, request any) (any, error)
 	CallWithTimeout(to any, request any, timeout int) (any, error)
@@ -174,6 +174,29 @@ type Node interface {
 type ProcessID struct {
 	Name Atom
 	Node Atom
+}
+
+type TracingAttribute struct {
+	Name  string
+	Value string
+}
+
+// MessageOptions is the routing header. It carries a reference field of its own,
+// which is what made reading it in place of the payload look like a finding.
+type MessageOptions struct {
+	Ref               Ref
+	Priority          MessagePriority
+	TracingAttributes []TracingAttribute
+}
+
+// Connection is the routing surface between nodes. Every method takes the header
+// first, so the payload sits one argument further along than it does on a Process.
+type Connection interface {
+	SendPID(from PID, to PID, options MessageOptions, message any) error
+	SendProcessID(from PID, to ProcessID, options MessageOptions, message any) error
+	SendEvent(from PID, options MessageOptions, message MessageEvent) error
+	SendResponse(from PID, to PID, options MessageOptions, response any) error
+	CallPID(from PID, to PID, options MessageOptions, message any) error
 }
 
 // MetaProcess is the handle a meta holds. The gated methods are here because the

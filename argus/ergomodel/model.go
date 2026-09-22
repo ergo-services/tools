@@ -28,6 +28,9 @@ type SendSite struct {
 	Method  string
 	Payload ast.Expr
 	In      *Callback
+	Decl    *ast.FuncDecl
+
+	Origin Origin
 }
 
 type Model struct {
@@ -43,9 +46,10 @@ type Model struct {
 	inProgress   map[types.Type]bool
 	usedBackEdge int
 
-	senders map[string]int
-	cbNames map[string]bool
-	ifaces  map[string]*types.Interface
+	senders    *surfaceTable
+	responders *surfaceTable
+	cbNames    map[string]bool
+	ifaces     map[string]*types.Interface
 
 	funcs           map[*types.Func]FuncBehavior
 	underCallback   map[*types.Func]bool
@@ -77,9 +81,15 @@ type Model struct {
 	baseline *baseline
 	debt2    *debtCounter
 
-	suppress map[int]map[string]bool
-	debt     []DebtEntry
-	frozen   bool
+	flows         map[*ast.FuncDecl]*flow
+	provDecls     []*ast.FuncDecl
+	results       map[*types.Func]ResultsFact
+	mutated       map[string]bool
+	mutatedInside map[string]bool
+	funcAliases   map[types.Object]*types.Func
+	suppress      map[int]map[string]bool
+	debt          []DebtEntry
+	frozen        bool
 }
 
 func newModel(pass *analysis.Pass, cfg *Config) *Model {
@@ -181,11 +191,13 @@ func (m *Model) build(insp *inspector.Inspector) {
 			if payload, method, ok := m.sendPayload(call); ok {
 				m.SendSites = append(m.SendSites, &SendSite{
 					Call: call, Method: method, Payload: payload, In: enclosing,
+					Decl: fn,
 				})
 			}
 			if args, method, ok := m.spawnArgs(call); ok {
 				m.spawnSites = append(m.spawnSites, &SpawnSite{
 					Call: call, Method: method, Args: args, In: enclosing,
+					Decl: fn,
 				})
 			}
 			return true
@@ -205,6 +217,11 @@ func (m *Model) build(insp *inspector.Inspector) {
 	m.buildPublications(decls)
 	m.buildAssigned()
 	m.buildWireErrorSites(decls)
+	m.buildMutatedFields(decls)
+	m.buildFuncAliases()
+	m.flows = map[*ast.FuncDecl]*flow{}
+	m.buildResultOrigins(decls)
+	m.provDecls = decls
 }
 
 func (m *Model) spawnArgs(call *ast.CallExpr) ([]ast.Expr, string, bool) {
@@ -305,6 +322,8 @@ func (m *Model) precompute() {
 			m.guards[types.Unalias(t)] = m.Guard(t)
 		}
 	}
+
+	m.buildProvenance(m.provDecls)
 }
 
 func (m *Model) publishShape(tn *types.TypeName, named *types.Named, s Shape) {

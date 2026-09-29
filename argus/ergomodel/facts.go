@@ -35,9 +35,16 @@ type SpawnsFact struct{}
 
 func (*SpawnsFact) AFact() {}
 
-type UnrecoveredSpawnFact struct{}
+type UnrecoveredSpawnFact struct {
+	In string
+	At string
+}
 
 func (*UnrecoveredSpawnFact) AFact() {}
+
+type ForksFact struct{ Params []int }
+
+func (*ForksFact) AFact() {}
 
 type RecoversFact struct{}
 
@@ -113,4 +120,5 @@ var factTypes = []analysis.Fact{
 	(*NodeSenderFact)(nil),
 	(*FmtWrappedFact)(nil),
 	(*ExternalRoundTripFact)(nil),
+	(*ForksFact)(nil),
 }

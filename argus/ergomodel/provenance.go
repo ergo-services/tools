@@ -53,6 +53,7 @@ type ResultOrigin struct {
 type bind struct {
 	expr  ast.Expr
 	index int
+	pos   token.Pos
 }
 
 type fieldWrite struct {
@@ -79,6 +80,22 @@ func (m *Model) flowOf(decl *ast.FuncDecl) *flow {
 	f := m.buildFlow(decl)
 	m.flows[decl] = f
 	return f
+}
+
+func (m *Model) BoundBefore(decl *ast.FuncDecl, name string, at token.Pos) (ast.Expr, bool) {
+	f, ok := m.flows[decl]
+	if ok == false {
+		return nil, false
+	}
+	var out ast.Expr
+	best := token.NoPos
+	for _, b := range f.binds[name] {
+		if b.pos >= at || b.pos < best {
+			continue
+		}
+		out, best = b.expr, b.pos
+	}
+	return out, out != nil
 }
 
 func (m *Model) buildFlow(decl *ast.FuncDecl) *flow {
@@ -145,7 +162,7 @@ func noteTypeSwitch(f *flow, ts *ast.TypeSwitchStmt) {
 	if isIdent == false || isAssert == false {
 		return
 	}
-	f.binds[id.Name] = append(f.binds[id.Name], bind{expr: assert.X, index: -1})
+	f.binds[id.Name] = append(f.binds[id.Name], bind{expr: assert.X, index: -1, pos: id.Pos()})
 }
 
 func noteDecl(f *flow, ds *ast.DeclStmt) {
@@ -165,7 +182,8 @@ func noteDecl(f *flow, ds *ast.DeclStmt) {
 			continue
 		}
 		for i, name := range vs.Names {
-			f.binds[name.Name] = append(f.binds[name.Name], bind{expr: vs.Values[i], index: -1})
+			f.binds[name.Name] = append(f.binds[name.Name],
+				bind{expr: vs.Values[i], index: -1, pos: name.Pos()})
 		}
 	}
 }
@@ -191,7 +209,8 @@ func (m *Model) noteAssign(f *flow, as *ast.AssignStmt) {
 				f.writes[target.Name] = append(f.writes[target.Name], values...)
 				continue
 			}
-			f.binds[target.Name] = append(f.binds[target.Name], bind{expr: rhs, index: -1})
+			f.binds[target.Name] = append(f.binds[target.Name],
+				bind{expr: rhs, index: -1, pos: target.Pos()})
 
 		case *ast.IndexExpr:
 			if id, isIdent := target.X.(*ast.Ident); isIdent {
@@ -223,16 +242,16 @@ func noteMultiValue(f *flow, as *ast.AssignStmt) {
 	if len(as.Lhs) == 2 {
 		switch src := as.Rhs[0].(type) {
 		case *ast.TypeAssertExpr:
-			bindIdent(f, as.Lhs[0], bind{expr: src.X, index: -1})
+			bindIdent(f, as.Lhs[0], bind{expr: src.X, index: -1, pos: as.Lhs[0].Pos()})
 			return
 		case *ast.IndexExpr:
-			bindIdent(f, as.Lhs[0], bind{expr: src, index: -1})
+			bindIdent(f, as.Lhs[0], bind{expr: src, index: -1, pos: as.Lhs[0].Pos()})
 			return
 		}
 	}
 	if call, isCall := as.Rhs[0].(*ast.CallExpr); isCall {
 		for i, lhs := range as.Lhs {
-			bindIdent(f, lhs, bind{expr: call, index: i})
+			bindIdent(f, lhs, bind{expr: call, index: i, pos: lhs.Pos()})
 		}
 		return
 	}

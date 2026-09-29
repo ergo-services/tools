@@ -71,3 +71,51 @@ func (r *Recorded) HandleMessage(from gen.PID, message any) error {
 	//argus:allow A2029 this process exists only to feed that peer and has nothing to do without it
 	return r.Send(r.peer, done{})
 }
+
+type Watcher struct {
+	act.Actor
+	peer gen.PID
+	name gen.Atom
+}
+
+func (w *Watcher) HandleMessage(from gen.PID, message any) error {
+	if err := w.Send(w.peer, done{}); err != nil { // want `\[tier2\] \[A2029\] HandleMessage returns the error of Send\(\) as its termination reason`
+		return err
+	}
+	return nil
+}
+
+func (w *Watcher) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	err := w.MonitorPID(w.peer) // want `A2029.*HandleCall returns the error of MonitorPID\(\)`
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
+}
+
+func (w *Watcher) HandleEvent(event gen.MessageEvent) error {
+	return w.MonitorPID(w.peer) // want `A2029.*HandleEvent returns the error of MonitorPID\(\)`
+}
+
+type Asker struct {
+	act.Actor
+	peer gen.PID
+	name gen.Atom
+}
+
+func (a *Asker) HandleMessage(from gen.PID, message any) error {
+	if _, err := a.CallWithTimeout(a.peer, done{}, 5); err != nil { // want `A2029.*HandleMessage returns the error of CallWithTimeout\(\)`
+		return err
+	}
+	return nil
+}
+
+func (a *Asker) Init(args ...any) error {
+	if err := a.RegisterName(a.name); err != nil {
+		return err
+	}
+	if err := a.MonitorPID(a.peer); err != nil {
+		a.Log().Warning("peer already gone: %s", err)
+	}
+	return nil
+}

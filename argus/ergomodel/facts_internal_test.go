@@ -19,7 +19,7 @@ func populated() []analysis.Fact {
 		&SenderFact{Params: []int{1, 3}},
 		&BlocksFact{Why: "mutex", Bounded: true, Timeout: 5 * time.Second},
 		&SpawnsFact{},
-		&UnrecoveredSpawnFact{},
+		&UnrecoveredSpawnFact{In: "example.com/app.start", At: "app.go:12"},
 		&RecoversFact{},
 		&EscapesFact{Escapes: []Escape{{Result: 1, Field: "data"}}},
 		&ResultsFact{Results: []ResultOrigin{
@@ -34,6 +34,7 @@ func populated() []analysis.Fact {
 		&NodeSenderFact{Params: []int{0, 2}, Method: "Send"},
 		&FmtWrappedFact{},
 		&ExternalRoundTripFact{Why: "a database round trip"},
+		&ForksFact{Params: []int{0, 2}},
 	}
 }
 

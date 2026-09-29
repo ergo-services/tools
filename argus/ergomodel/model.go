@@ -41,10 +41,9 @@ type Model struct {
 	Callbacks []*Callback
 	SendSites []*SendSite
 
-	shapes       map[types.Type]Shape
-	guards       map[types.Type]Guardedness
-	inProgress   map[types.Type]bool
-	usedBackEdge int
+	shapes map[types.Type]Shape
+	sealed map[types.Type]Shape
+	guards map[types.Type]Guardedness
 
 	senders    *surfaceTable
 	responders *surfaceTable
@@ -55,6 +54,9 @@ type Model struct {
 	underCallback   map[*types.Func]bool
 	declOf          map[*types.Func]*ast.FuncDecl
 	goSites         []*GoSite
+	forks           map[*types.Func][]int
+	forkSites       []*ForkSite
+	forkSitesIn     map[*ast.FuncDecl][]*ForkSite
 	blockSites      []*BlockSite
 	spawnSites      []*SpawnSite
 	specs           []*SupervisorSpec
@@ -94,16 +96,15 @@ type Model struct {
 
 func newModel(pass *analysis.Pass, cfg *Config) *Model {
 	m := &Model{
-		pass:       pass,
-		cfg:        cfg,
-		fset:       pass.Fset,
-		shapes:     make(map[types.Type]Shape),
-		guards:     make(map[types.Type]Guardedness),
-		inProgress: make(map[types.Type]bool),
-		ifaces:     make(map[string]*types.Interface),
-		declOf:     make(map[*types.Func]*ast.FuncDecl),
-		suppress:   make(map[int]map[string]bool),
-		debt2:      newDebtCounter(),
+		pass:     pass,
+		cfg:      cfg,
+		fset:     pass.Fset,
+		shapes:   make(map[types.Type]Shape),
+		guards:   make(map[types.Type]Guardedness),
+		ifaces:   make(map[string]*types.Interface),
+		declOf:   make(map[*types.Func]*ast.FuncDecl),
+		suppress: make(map[int]map[string]bool),
+		debt2:    newDebtCounter(),
 	}
 	m.pkgAllowReason, m.pkgAllowed = cfg.PackageAllowed(pass.Pkg.Path())
 	return m
@@ -205,6 +206,7 @@ func (m *Model) build(insp *inspector.Inspector) {
 	}
 
 	m.collectSuppressions()
+	m.buildForks(decls, byDecl)
 	m.buildBehavior(decls, byDecl)
 	m.buildSpecs(decls)
 	m.buildEvents(decls)
@@ -220,6 +222,11 @@ func (m *Model) build(insp *inspector.Inspector) {
 	m.buildMutatedFields(decls)
 	m.buildFuncAliases()
 	m.flows = map[*ast.FuncDecl]*flow{}
+	for _, decl := range decls {
+		if decl.Body != nil {
+			m.flowOf(decl)
+		}
+	}
 	m.buildResultOrigins(decls)
 	m.provDecls = decls
 }
@@ -389,7 +396,7 @@ func (m *Model) Shape(t types.Type) Shape {
 	if m.frozen {
 
 		sub := &Model{pass: m.pass, cfg: m.cfg, fset: m.fset,
-			shapes: map[types.Type]Shape{}, inProgress: map[types.Type]bool{}}
+			shapes: map[types.Type]Shape{}, sealed: m.shapes}
 		return sub.shapeOf(t)
 	}
 	return m.shapeOf(t)

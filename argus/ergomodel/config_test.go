@@ -105,9 +105,14 @@ func TestConfigSurfaces(t *testing.T) {
     - { func: my/pkg.WaitForever, why: custom wait }
   callbacks:
     - { recv: my/pkg.Behavior, methods: [Init, HandleMessage] }
+  forks:
+    - { recv: my/pkg.Pool, method: Submit, param: 1 }
 `)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(cfg.Forks) != 1 || cfg.Forks[0].Method != "Submit" || cfg.Forks[0].Param != 1 {
+		t.Errorf("forks = %+v, want the single configured entry replacing the defaults", cfg.Forks)
 	}
 	if len(cfg.Senders) != 1 || cfg.Senders[0].Method != "Publish" || cfg.Senders[0].Param != 1 {
 		t.Errorf("senders = %+v, want the single configured entry", cfg.Senders)
@@ -129,6 +134,8 @@ func TestConfigMalformedIsAnError(t *testing.T) {
 		"reason before path":     "allow:\n  types:\n    - reason: orphan\n",
 		"unknown allow section":  "allow:\n  colours:\n    - { path: x, reason: y }\n",
 		"sender without param":   "surfaces:\n  senders:\n    - { recv: a, method: B }\n",
+		"fork without param":     "surfaces:\n  forks:\n    - { func: a.B }\n",
+		"fork without target":    "surfaces:\n  forks:\n    - { param: 0 }\n",
 		"unknown surface":        "surfaces:\n  nonsense:\n    - { a: b }\n",
 	}
 	for name, body := range cases {
@@ -152,12 +159,34 @@ func TestDefaultConfigPolarity(t *testing.T) {
 	if _, ok := cfg.AllowTypes["[]byte"]; ok == false {
 		t.Error("[]byte must be allowlisted by default, it is the documented payload exception")
 	}
+	afterFunc := false
+	for _, f := range cfg.Forks {
+		if f.Func == "time.AfterFunc" && f.Param == 1 {
+			afterFunc = true
+		}
+	}
+	if afterFunc == false {
+		t.Error("time.AfterFunc must be on the default forks surface, it runs its func on a goroutine of its own")
+	}
 
 	if _, ok := cfg.PackageAllowed("ergo.services/ergo/app/system/inspect"); ok == false {
 		t.Error("the framework's own app tree must be excused by default")
 	}
 	if _, ok := cfg.PackageAllowed("example.com/user/app"); ok {
 		t.Error("user code must not be excused by default")
+	}
+}
+
+func TestConfigTestsAreOptIn(t *testing.T) {
+	if ergomodel.DefaultConfig().Tests {
+		t.Error("findings in test files must not be reported by default")
+	}
+	cfg, err := parse(t, "tests: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tests == false {
+		t.Error("tests: true in argus.yml must opt test files in")
 	}
 }
 

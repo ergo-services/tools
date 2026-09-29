@@ -45,6 +45,17 @@ working directory, exactly as with the go command, so the tool moves there first
 argus -C ../../application/observer ./...
 ```
 
+Test packages are left out by default. A direct run does not load them, so a
+dependency only a test imports is never analysed. Under `go vet`, which always includes
+test files, findings in them are dropped. `-include-tests` opts in, in both modes: a
+direct run loads test packages and reports in them, and `go vet` reports in test files.
+`tests: true` in `argus.yml` does the reporting half from configuration:
+
+```bash
+argus -include-tests ./...
+go vet -vettool=$(which argus) -include-tests ./...
+```
+
 Subcommands:
 
 ```bash
@@ -87,7 +98,7 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 | **A1006** | A send handing over a field of the sending actor's own state. Same hazard as A1001, different fix: the sender keeps mutating it, so copying at the send site papers over the sharing. Tier 1 when the actor writes into that field, tier 2 when it only ever replaces it whole. | `a.Send(pid, Msg{Cache: a.cache})` |
 | **A1007** | A method returning memory derived from its receiver, handed to a send or a spawn. A reslice of an internal buffer read by another actor without the owner's lock. | `a.Send(pid, buf.Bytes())` |
 | **A1008** | `HandleCall` returning an error in the termination reason slot. It kills the process and sends no reply, so any peer with an unrecognized request can terminate the callee. | `return nil, gen.ErrUnsupported` |
-| **A1010** | A goroutine with no recover boundary reachable from a callback. A panic there takes the node down instead of one process, and supervision never gets a say. | `go doWork()` |
+| **A1010** | A goroutine with no recover boundary reachable from a callback: a `go` statement, a function argument handed to something that runs it on a goroutine of its own (`time.AfterFunc`, `WaitGroup.Go`, `errgroup.Group.Go`, a helper doing `go f()`), and a call into another package of the project that starts one. A panic there takes the node down instead of one process, and supervision never gets a say. A func value that does not resolve to a body is tier 2. | `go doWork()` |
 | **A1011** | A blocking request in `Init` against the init budget. Both default to five seconds, so the spawner kills the process and returns `ErrTimeout` while `Init` keeps running. The verdict travels on the factory object. | `Init(){ a.Call(x, r) }` |
 | **A1012** | `Node().Send` or `Node().Call` from inside a callback. The node routes on its own behalf, so the actor never enters `WaitResponse` and reports itself as Running for the whole wait. | `a.Node().Call(to, req)` |
 | **A1013** | A cycle among the behavior's own methods, reachable from a callback. Recursion in a callback grows the goroutine stack, and a stack overflow is a fatal runtime error: `recover` does not see it, `Terminate` does not run, and the node goes down with every process on it. A self send does not make a stuck loop finish, it returns the fault to where supervision can act. | `func (a *A) step() error { return a.decide() }` |
@@ -124,7 +135,7 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 | **A2026** | A call the runtime rejects on its arguments, whatever the state: an exit signal to self, parent or leader, a nil termination reason, a compression threshold below the floor, an enum value out of range, a self link or monitor, an address whose type is none of `gen.PID`, `gen.ProcessID`, `gen.Alias` or `gen.Atom`. | `a.Send("worker", msg)` |
 | **A2027** | A meta `Start` that returns without blocking. The meta ends when `Start` returns, so the alias `SpawnMeta` just handed back is already dead. | `Start() error { return nil }` |
 | **A2028** | A request inside `HandleCall` whose budget is not smaller than the caller's. The caller is waiting on its own default five seconds, so the inner wait can outlast the outer one and the reply lands after the caller gave up. An actor also handles one message at a time, so a pool of workers in front of one such handler serialises and every request past the first blows its budget queueing. | `HandleCall(...) { return a.Call(peer, req) }` |
-| **A2029** | A callback returning the error of a send to another process, directly or through its own helpers. The callback's error is the termination reason, so this process stops whenever that peer is gone - the ordinary condition in a distributed system. A shared actor takes its in-memory state with it. | `return a.Send(caller, result)` |
+| **A2029** | A callback returning the error of an operation on another process - send, request, monitor, demonitor, link, unlink - directly or through its own helpers, and in the guarded form as well as the returned one. The callback's error is the termination reason, so this process stops whenever that peer is gone, which is the ordinary condition in a distributed system. A shared actor takes its in-memory state with it. | `if err := a.MonitorPID(pid); err != nil { return err }` |
 
 ### Tier 3 - hygiene, off by default
 
@@ -203,8 +214,9 @@ tiers:
 # Accepted findings, relative to this file. See Adoption below.
 baseline: argus-baseline.json
 
-# Analyse test variants. Default true.
-tests: true
+# Report findings in test files. Default false. -include-tests overrides it
+# when given explicitly.
+tests: false
 
 allow:
   # Types that are safe to share by their own contract. A configured list
@@ -249,6 +261,15 @@ surfaces:
     - { recv: "example.com/app/bus.Bus", method: Publish, param: 1 }
     - { recv: ergo.services/ergo/gen.Process, method: Send, param: 1 }
     - { recv: ergo.services/ergo/gen.Node, method: SendEvent, param: 3 }
+
+  # Calls that run a function argument on a goroutine of their own, with the
+  # argument index. A1010 requires that argument to install a recover. A
+  # configured list REPLACES the built-in one, which names time.AfterFunc,
+  # sync.WaitGroup.Go and errgroup.Group.Go and TryGo.
+  forks:
+    - { func: time.AfterFunc, param: 1 }
+    - { recv: sync.WaitGroup, method: Go, param: 0 }
+    - { recv: "example.com/app/pool.Pool", method: Submit, param: 0 }
 
   # Interfaces whose implementations are behaviors, and the callback names.
   callbacks:
@@ -417,7 +438,8 @@ carry, and the places an error value reaches another process.
 
 What one package cannot answer alone travels as a `go/analysis` fact on the object it is
 about: whether a function blocks and with what bound, whether it starts an unrecovered
-goroutine, whether it hands back memory derived from its receiver or memory that is fresh, whether it
+goroutine and where, which of its parameters it runs on a goroutine of its own, whether it
+hands back memory derived from its receiver or memory that is fresh, whether it
 replies,
 which parameters it forwards into a send, which behavior a factory returns and what its
 `Init` waits on, and whether it builds an `fmt.Errorf` value with a `%w` operand. That is

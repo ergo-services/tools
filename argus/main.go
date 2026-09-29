@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	_ "embed"
+	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"golang.org/x/tools/go/analysis/multichecker"
@@ -17,6 +19,9 @@ import (
 var versionFile string
 
 var version = strings.TrimPrefix(strings.TrimSpace(versionFile), "v")
+
+var _ = flag.Bool("include-tests", false,
+	"also analyse test packages and report findings in test files (default false)")
 
 func main() {
 
@@ -35,7 +40,37 @@ func main() {
 		}
 	}
 	chdir()
+	testPackages()
 	multichecker.Main(rules.Suite()...)
+}
+
+func testPackages() {
+	include, given, loaded, reported := false, false, false, false
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "-") == false {
+			break
+		}
+		name, value, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
+		switch name {
+		case "include-tests":
+			include, given = true, true
+			if hasValue {
+				include, _ = strconv.ParseBool(value)
+			}
+		case "test":
+			loaded = true
+		case "argusmodel.tests":
+			reported = true
+		}
+	}
+	var implied []string
+	if loaded == false {
+		implied = append(implied, "-test="+strconv.FormatBool(include))
+	}
+	if given && reported == false {
+		implied = append(implied, "-argusmodel.tests="+strconv.FormatBool(include))
+	}
+	os.Args = append(append([]string{os.Args[0]}, implied...), os.Args[1:]...)
 }
 
 func baseline() {
@@ -140,5 +175,6 @@ func help(args []string) {
 	fmt.Println("\nargus version       the version of this build")
 	fmt.Println("argus help <rule>   full documentation for one rule")
 	fmt.Println("argus baseline      read a keyed run on stdin, write a baseline file")
+	fmt.Println("argus -include-tests ./...   also analyse test packages, left out by default")
 	fmt.Println("go vet -vettool=$(which argus) ./...")
 }

@@ -52,6 +52,13 @@ type SenderSurface struct {
 	Param  int
 }
 
+type ForkSurface struct {
+	Func   string
+	Recv   string
+	Method string
+	Param  int
+}
+
 type CallbackSurface struct {
 	Recv    string
 	Methods []string
@@ -66,6 +73,7 @@ type Config struct {
 	RoundTrips    []RoundTripSurface
 	Senders       []SenderSurface
 	Callbacks     []CallbackSurface
+	Forks         []ForkSurface
 	Baseline      string
 	Tests         bool
 
@@ -112,7 +120,8 @@ func DefaultConfig() *Config {
 		RoundTrips: defaultRoundTrips(),
 		Senders:    defaultSenders(),
 		Callbacks:  defaultCallbacks(),
-		Tests:      true,
+		Forks:      defaultForks(),
+		Tests:      false,
 	}
 }
 
@@ -135,15 +144,39 @@ func (c *Config) PackageAllowed(path string) (string, bool) {
 var (
 	flagConfig     string
 	flagConfigHash string
-	flagTests      bool
+	flagTests      optionalBool
 	flagKeys       bool
 )
+
+type optionalBool struct {
+	value bool
+	set   bool
+}
+
+func (b *optionalBool) String() string { return strconv.FormatBool(b.value) }
+
+func (b *optionalBool) Set(s string) error {
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		return err
+	}
+	b.value, b.set = v, true
+	return nil
+}
+
+func (b *optionalBool) IsBoolFlag() bool { return true }
 
 func BindFlags(fs *flag.FlagSet) {
 	fs.StringVar(&flagConfig, "config", "", "path to argus.yml, absolute or discovered by walking up")
 	fs.StringVar(&flagConfigHash, "confighash", "", "digest of the effective config, present only to defeat the vet cache")
-	fs.BoolVar(&flagTests, "tests", true, "analyze test variants")
+	fs.Var(&flagTests, "tests", "report findings in test files, overriding tests in argus.yml (default false)")
 	fs.BoolVar(&flagKeys, "keys", false, "append a baseline key to every finding, so a baseline can be built from the output")
+}
+
+func applyTestsFlag(cfg *Config) {
+	if flagTests.set {
+		cfg.Tests = flagTests.value
+	}
 }
 
 var (
@@ -166,7 +199,7 @@ func LoadConfig(anchorFile string) (*Config, error) {
 
 	if path == "" {
 		cfg := DefaultConfig()
-		cfg.Tests = flagTests
+		applyTestsFlag(cfg)
 		configCache[path] = cfg
 		return cfg, nil
 	}
@@ -183,7 +216,7 @@ func LoadConfig(anchorFile string) (*Config, error) {
 		return nil, fmt.Errorf("argus: parse config %q: %w", abs, err)
 	}
 	cfg.path = abs
-	cfg.Tests = flagTests
+	applyTestsFlag(cfg)
 	configCache[path] = cfg
 	return cfg, nil
 }
@@ -293,7 +326,7 @@ func parseConfig(data []byte) (*Config, error) {
 				}
 			case "surfaces":
 				switch key {
-				case "senders", "callbacks", "blocking", "roundtrip":
+				case "senders", "callbacks", "blocking", "roundtrip", "forks":
 				default:
 					if err := parseSurfaceContinuation(cfg, sub, key, value, i+1); err != nil {
 						return nil, err
@@ -465,6 +498,8 @@ func parseSurfaceEntry(cfg *Config, sub, entry string, replaced map[string]bool,
 			cfg.Blocking = nil
 		case "roundtrip":
 			cfg.RoundTrips = nil
+		case "forks":
+			cfg.Forks = nil
 		}
 		replaced[sub] = true
 	}
@@ -502,6 +537,18 @@ func parseSurfaceEntry(cfg *Config, sub, entry string, replaced map[string]bool,
 		cfg.RoundTrips = append(cfg.RoundTrips, RoundTripSurface{
 			Func: fields["func"], Recv: fields["recv"],
 			Method: fields["method"], Why: fields["why"],
+		})
+	case "forks":
+		if fields["func"] == "" && fields["method"] == "" {
+			return fmt.Errorf("line %d: forks entry needs a func or a recv plus method", line)
+		}
+		param, err := strconv.Atoi(fields["param"])
+		if err != nil {
+			return fmt.Errorf("line %d: forks entry needs a numeric param", line)
+		}
+		cfg.Forks = append(cfg.Forks, ForkSurface{
+			Func: fields["func"], Recv: fields["recv"],
+			Method: fields["method"], Param: param,
 		})
 	default:
 		return fmt.Errorf("line %d: surfaces entry outside a known section", line)
@@ -557,6 +604,15 @@ func (c *Config) Severity(tier int) Severity {
 		return s
 	}
 	return SeverityOff
+}
+
+func defaultForks() []ForkSurface {
+	return []ForkSurface{
+		{Func: "time.AfterFunc", Param: 1},
+		{Recv: "sync.WaitGroup", Method: "Go", Param: 0},
+		{Recv: "golang.org/x/sync/errgroup.Group", Method: "Go", Param: 0},
+		{Recv: "golang.org/x/sync/errgroup.Group", Method: "TryGo", Param: 0},
+	}
 }
 
 func defaultRoundTrips() []RoundTripSurface {

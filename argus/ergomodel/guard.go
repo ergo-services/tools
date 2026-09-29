@@ -45,7 +45,7 @@ func (m *Model) Guard(t types.Type) Guardedness {
 			atomicFields++
 			continue
 		}
-		s := m.shapeOf(ft)
+		s := m.Shape(ft)
 		if s.Aliasing == false {
 			continue
 		}

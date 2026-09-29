@@ -15,12 +15,30 @@ const ruleID = "A2029"
 
 var Analyzer = &analysis.Analyzer{
 	Name: "argusA2029",
-	Doc: `A2029: a termination reason that is a failed send.
+	Doc: `A2029: a termination reason that is the failure of an operation on a peer.
 
-A callback returns the error of a send to another process, directly or through its own
-helpers. The callback's error is the termination reason, so the actor's own liveness is
-made to depend on whether a peer is still reachable - and a peer that is gone is the
-ordinary condition in a distributed system, not a reason to stop.
+A callback returns the error of an operation whose subject is another process, directly or
+through its own helpers. The callback's error is the termination reason, so the actor's own
+liveness is made to depend on whether a peer is still reachable - and a peer that is gone is
+the ordinary condition in a distributed system, not a reason to stop.
+
+The surface is every operation that asks something of another process: the send family, a
+request and its timeout variants, and monitor, demonitor, link and unlink. The failure of
+each one is information about that peer, and a monitor is the sharpest case, because it
+fails exactly when the peer died between the spawn and the watch - the moment the watcher
+exists to survive.
+
+Both forms count, and the guarded one is the form that ships the defect:
+
+    return a.Send(peer, result)
+
+    if err := a.MonitorPID(pid); err != nil {
+        return err
+    }
+
+An operation on this process's own name is not on this list. RegisterName fails because the
+name is taken, which is a real reason to refuse to start, and a send to the actor's own PID
+is about this process rather than about a peer.
 
 The failure is rarely where it is written. An actor that answers its caller with
 "return a.Send(caller, result)" dies the first time a caller went away before the answer
@@ -35,8 +53,7 @@ an approvals process serving many tenants restarted empty; the timers it held we
 it and the requests waiting on them never finished.
 
 The fix is to decide what the failure means instead of forwarding it: log it and return nil,
-or handle the absence - drop the entry, monitor the peer, answer somebody else. A send to the
-actor's own PID is exempt: that failure is about this process, not about a peer.
+or handle the absence - drop the entry, monitor the peer, answer somebody else.
 
 Source: actors.md`,
 	URL:      "https://docs.ergo.services/tools/argus#A2029",
@@ -44,11 +61,21 @@ Source: actors.md`,
 	Run:      run,
 }
 
-var sendMethods = map[string]bool{
+var peerMethods = map[string]bool{
 	"Send": true, "SendPID": true, "SendProcessID": true, "SendAlias": true,
 	"SendWithPriority": true, "SendImportant": true, "SendEvent": true,
 	"SendResponse": true, "SendResponseError": true,
 	"SendResponseImportant": true, "SendResponseErrorImportant": true,
+
+	"MonitorPID": true, "MonitorProcessID": true, "MonitorAlias": true, "MonitorEvent": true,
+	"DemonitorPID": true, "DemonitorProcessID": true, "DemonitorAlias": true,
+	"DemonitorEvent": true,
+
+	"LinkPID": true, "LinkProcessID": true, "LinkAlias": true, "LinkEvent": true,
+	"UnlinkPID": true, "UnlinkProcessID": true, "UnlinkAlias": true, "UnlinkEvent": true,
+
+	"Call": true, "CallWithTimeout": true, "CallWithPriority": true, "CallImportant": true,
+	"CallPID": true, "CallProcessID": true, "CallAlias": true,
 }
 
 type finder struct {
@@ -113,36 +140,50 @@ func (f *finder) in(decl *ast.FuncDecl) []hit {
 		if ok == false || len(ret.Results) == 0 {
 			return true
 		}
-		call, ok := ret.Results[len(ret.Results)-1].(*ast.CallExpr)
-		if ok == false {
-			return true
-		}
-		callee := f.callee(call)
-		if callee == nil {
-			return true
-		}
-
-		if method := f.sendMethod(callee); method != "" {
-			if f.toSelf(call) == false {
-				out = append(out, hit{pos: call.Pos(), method: method})
+		for _, call := range f.returned(decl, ret.Results[len(ret.Results)-1], ret.Pos()) {
+			callee := f.callee(call)
+			if callee == nil {
+				continue
 			}
-			return true
-		}
-		if ownerOf(callee) != f.owner || f.seen[callee] == true {
-			return true
-		}
-		f.seen[callee] = true
-		for _, deep := range f.in(f.m.DeclOf(callee)) {
-			deep.chain = append([]string{callee.Name()}, deep.chain...)
-			out = append(out, deep)
+
+			if method := f.peerMethod(callee); method != "" {
+				if f.toSelf(call) == false {
+					out = append(out, hit{pos: call.Pos(), method: method})
+				}
+				continue
+			}
+			if ownerOf(callee) != f.owner || f.seen[callee] == true {
+				continue
+			}
+			f.seen[callee] = true
+			for _, deep := range f.in(f.m.DeclOf(callee)) {
+				deep.chain = append([]string{callee.Name()}, deep.chain...)
+				out = append(out, deep)
+			}
 		}
 		return true
 	})
 	return out
 }
 
-func (f *finder) sendMethod(fn *types.Func) string {
-	if sendMethods[fn.Name()] == false || fn.Pkg() == nil {
+func (f *finder) returned(decl *ast.FuncDecl, result ast.Expr, at token.Pos) []*ast.CallExpr {
+	switch x := result.(type) {
+	case *ast.CallExpr:
+		return []*ast.CallExpr{x}
+	case *ast.Ident:
+		bound, ok := f.m.BoundBefore(decl, x.Name, at)
+		if ok == false {
+			return nil
+		}
+		if call, isCall := bound.(*ast.CallExpr); isCall {
+			return []*ast.CallExpr{call}
+		}
+	}
+	return nil
+}
+
+func (f *finder) peerMethod(fn *types.Func) string {
+	if peerMethods[fn.Name()] == false || fn.Pkg() == nil {
 		return ""
 	}
 	if strings.HasPrefix(fn.Pkg().Path(), "ergo.services/ergo") == false {

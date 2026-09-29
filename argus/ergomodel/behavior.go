@@ -20,6 +20,9 @@ type FuncBehavior struct {
 	Replies     bool
 	RoundTrip   string
 
+	UnrecoveredIn string
+	UnrecoveredAt string
+
 	External   string
 	Escapes    []Escape
 	Sender     []int
@@ -34,6 +37,7 @@ type GoSite struct {
 	In        *Callback
 	Enclosing *types.Func
 	Recovered bool
+	Forwarded bool
 	Capture   string
 	CaptureAt token.Pos
 }
@@ -158,6 +162,7 @@ func merge(into *FuncBehavior, from FuncBehavior) bool {
 	}
 	if from.Unrecovered && into.Unrecovered == false {
 		into.Unrecovered, changed = true, true
+		into.UnrecoveredIn, into.UnrecoveredAt = from.UnrecoveredIn, from.UnrecoveredAt
 	}
 	if from.Replies && into.Replies == false {
 		into.Replies, changed = true, true
@@ -185,6 +190,7 @@ func (m *Model) importedBehavior(fn *types.Func) FuncBehavior {
 	var unrec UnrecoveredSpawnFact
 	if m.pass.ImportObjectFact(fn, &unrec) {
 		out.Unrecovered = true
+		out.UnrecoveredIn, out.UnrecoveredAt = unrec.In, unrec.At
 	}
 	var recovers RecoversFact
 	if m.pass.ImportObjectFact(fn, &recovers) {
@@ -229,8 +235,8 @@ func (m *Model) publishBehavior(fn *types.Func, b FuncBehavior) {
 	if b.Spawns {
 		m.pass.ExportObjectFact(fn, &SpawnsFact{})
 	}
-	if b.Unrecovered {
-		m.pass.ExportObjectFact(fn, &UnrecoveredSpawnFact{})
+	if b.Unrecovered && m.editable() && m.pkgAllowed == false {
+		m.pass.ExportObjectFact(fn, &UnrecoveredSpawnFact{In: b.UnrecoveredIn, At: b.UnrecoveredAt})
 	}
 	if b.Recovers {
 		m.pass.ExportObjectFact(fn, &RecoversFact{})
@@ -298,9 +304,10 @@ func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func)
 				Enclosing: obj,
 				Recovered: m.bodyRecovers(x),
 			}
+			_, site.Forwarded = m.funcParam(decl, x.Call.Fun)
 			site.Capture, site.CaptureAt = receiverUse(x, recv)
-			if site.Recovered == false {
-				out.Unrecovered = true
+			if site.Recovered == false && site.Forwarded == false {
+				m.noteUnrecovered(&out, obj, x.Pos())
 			}
 			m.goSites = append(m.goSites, site)
 
@@ -395,6 +402,12 @@ func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func)
 		return true
 	}
 	ast.Inspect(decl.Body, walk)
+
+	for _, site := range m.forkSitesIn[decl] {
+		if site.Resolved && site.Recovered == false {
+			m.noteUnrecovered(&out, obj, site.Call.Pos())
+		}
+	}
 
 	out.Recovers = callsRecover(decl.Body, m.pass.TypesInfo)
 	out.FmtWrapped = m.returnsFmtWrapped(decl)
@@ -666,15 +679,7 @@ func (m *Model) bodyRecovers(g *ast.GoStmt) bool {
 	if ok == false {
 		return false
 	}
-	if fn.Pkg() == m.pass.Pkg {
-		if decl, ok := m.declOf[fn]; ok {
-			return m.establishesBoundary(decl.Body)
-		}
-		return false
-	}
-
-	var f RecoversFact
-	return m.pass.ImportObjectFact(fn, &f)
+	return m.funcRecovers(fn)
 }
 
 func (m *Model) establishesBoundary(body *ast.BlockStmt) bool {

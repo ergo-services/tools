@@ -54,6 +54,7 @@ type bind struct {
 	expr  ast.Expr
 	index int
 	pos   token.Pos
+	obj   types.Object
 }
 
 type fieldWrite struct {
@@ -62,6 +63,7 @@ type fieldWrite struct {
 }
 
 type flow struct {
+	info     *types.Info
 	recv     string
 	owner    string
 	params   map[string]int
@@ -82,15 +84,19 @@ func (m *Model) flowOf(decl *ast.FuncDecl) *flow {
 	return f
 }
 
-func (m *Model) BoundBefore(decl *ast.FuncDecl, name string, at token.Pos) (ast.Expr, bool) {
+func (m *Model) BoundBefore(decl *ast.FuncDecl, id *ast.Ident, at token.Pos) (ast.Expr, bool) {
 	f, ok := m.flows[decl]
 	if ok == false {
 		return nil, false
 	}
+	obj := m.pass.TypesInfo.Uses[id]
+	if obj == nil {
+		return nil, false
+	}
 	var out ast.Expr
 	best := token.NoPos
-	for _, b := range f.binds[name] {
-		if b.pos >= at || b.pos < best {
+	for _, b := range f.binds[id.Name] {
+		if b.obj != obj || b.pos >= at || b.pos < best {
 			continue
 		}
 		out, best = b.expr, b.pos
@@ -100,6 +106,7 @@ func (m *Model) BoundBefore(decl *ast.FuncDecl, name string, at token.Pos) (ast.
 
 func (m *Model) buildFlow(decl *ast.FuncDecl) *flow {
 	f := &flow{
+		info:     m.pass.TypesInfo,
 		recv:     receiverName(decl),
 		params:   map[string]int{},
 		binds:    map[string][]bind{},
@@ -162,7 +169,8 @@ func noteTypeSwitch(f *flow, ts *ast.TypeSwitchStmt) {
 	if isIdent == false || isAssert == false {
 		return
 	}
-	f.binds[id.Name] = append(f.binds[id.Name], bind{expr: assert.X, index: -1, pos: id.Pos()})
+	f.binds[id.Name] = append(f.binds[id.Name],
+		bind{expr: assert.X, index: -1, pos: id.Pos(), obj: f.info.ObjectOf(id)})
 }
 
 func noteDecl(f *flow, ds *ast.DeclStmt) {
@@ -183,7 +191,7 @@ func noteDecl(f *flow, ds *ast.DeclStmt) {
 		}
 		for i, name := range vs.Names {
 			f.binds[name.Name] = append(f.binds[name.Name],
-				bind{expr: vs.Values[i], index: -1, pos: name.Pos()})
+				bind{expr: vs.Values[i], index: -1, pos: name.Pos(), obj: f.info.ObjectOf(name)})
 		}
 	}
 }
@@ -210,7 +218,7 @@ func (m *Model) noteAssign(f *flow, as *ast.AssignStmt) {
 				continue
 			}
 			f.binds[target.Name] = append(f.binds[target.Name],
-				bind{expr: rhs, index: -1, pos: target.Pos()})
+				bind{expr: rhs, index: -1, pos: target.Pos(), obj: f.info.ObjectOf(target)})
 
 		case *ast.IndexExpr:
 			if id, isIdent := target.X.(*ast.Ident); isIdent {
@@ -300,6 +308,7 @@ func bindIdent(f *flow, lhs ast.Expr, b bind) {
 	if ok == false || id.Name == "_" {
 		return
 	}
+	b.obj = f.info.ObjectOf(id)
 	f.binds[id.Name] = append(f.binds[id.Name], b)
 }
 

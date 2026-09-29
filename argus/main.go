@@ -40,16 +40,17 @@ func main() {
 		}
 	}
 	chdir()
+	if code, driven := drive(); driven {
+		os.Exit(code)
+	}
 	testPackages()
 	multichecker.Main(rules.Suite()...)
 }
 
 func testPackages() {
 	include, given, loaded, reported := false, false, false, false
-	for _, arg := range os.Args[1:] {
-		if strings.HasPrefix(arg, "-") == false {
-			break
-		}
+	flags, _ := splitArgs(os.Args[1:])
+	for _, arg := range flags {
 		name, value, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
 		switch name {
 		case "include-tests":

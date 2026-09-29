@@ -45,6 +45,14 @@ working directory, exactly as with the go command, so the tool moves there first
 argus -C ../../application/observer ./...
 ```
 
+From a directory that is not itself inside a module, such as the root of a repository
+holding several, `./...` runs over every module below it, one after another, and a
+module with something to say prints under a `# ./dir` header. Hidden directories,
+`testdata`, `vendor` and `node_modules` are skipped, as the go command skips them. A
+pattern pointing into one module runs there alone. A package that does not load or does
+not type-check shows its errors once, followed by one line naming what was skipped,
+rather than a line for every rule.
+
 Test packages are left out by default. A direct run does not load them, so a
 dependency only a test imports is never analysed. Under `go vet`, which always includes
 test files, findings in them are dropped. `-include-tests` opts in, in both modes: a
@@ -416,11 +424,13 @@ go vet -vettool=$(go env GOPATH)/bin/argus ./...   # blocking, cached, uses the 
 argus ./...                                        # everything, including the warn tier
 ```
 
-A repository whose modules are finer than the repo runs one invocation per module:
+A repository whose modules are finer than the repo needs nothing special for a direct
+run: `argus ./...` at its root walks every module below. `go vet` works on one module at
+a time, so under it the loop is still one invocation per module:
 
 ```bash
-for mod in $(find . -name go.mod -not -path '*/vendor/*'); do
-  argus -C "$(dirname "$mod")" ./... || exit 1
+for mod in $(find . -name go.mod -not -path '*/vendor/*' -not -path '*/testdata/*'); do
+  (cd "$(dirname "$mod")" && go vet -vettool=$(which argus) ./...) || exit 1
 done
 ```
 

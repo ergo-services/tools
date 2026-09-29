@@ -119,3 +119,33 @@ func (a *Asker) Init(args ...any) error {
 	}
 	return nil
 }
+
+// A shadowed err is a different variable. The error returned here is the outer one,
+// and the failed send is only logged.
+type Shadowed struct {
+	act.Actor
+	peer gen.PID
+}
+
+func (s *Shadowed) validate(message any) error { return nil }
+
+func (s *Shadowed) HandleMessage(from gen.PID, message any) error {
+	err := s.validate(message)
+	if err != nil {
+		if err := s.Send(s.peer, done{}); err != nil {
+			s.Log().Warning("peer gone: %s", err)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Shadowed) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	var err error
+	if request != nil {
+		if err := s.Send(s.peer, done{}); err != nil {
+			s.Log().Warning("peer gone: %s", err)
+		}
+	}
+	return nil, err
+}

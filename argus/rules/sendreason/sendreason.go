@@ -171,7 +171,7 @@ func (f *finder) returned(decl *ast.FuncDecl, result ast.Expr, at token.Pos) []*
 	case *ast.CallExpr:
 		return []*ast.CallExpr{x}
 	case *ast.Ident:
-		bound, ok := f.m.BoundBefore(decl, x.Name, at)
+		bound, ok := f.m.BoundBefore(decl, x, at)
 		if ok == false {
 			return nil
 		}

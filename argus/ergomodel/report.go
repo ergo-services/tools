@@ -187,7 +187,24 @@ func (m *Model) ReportFix(pass *analysis.Pass, pos, end token.Pos, f Finding,
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "%s: %s\n", m.fset.Position(pos), msg)
+	if line := fmt.Sprintf("%s: %s", m.fset.Position(pos), msg); printOnce(line) {
+		fmt.Fprintln(os.Stderr, line)
+	}
+}
+
+var (
+	printedMu sync.Mutex
+	printed   = map[string]bool{}
+)
+
+func printOnce(line string) bool {
+	printedMu.Lock()
+	defer printedMu.Unlock()
+	if printed[line] {
+		return false
+	}
+	printed[line] = true
+	return true
 }
 
 func (m *Model) directiveFix(pass *analysis.Pass, pos token.Pos, rule string) analysis.SuggestedFix {

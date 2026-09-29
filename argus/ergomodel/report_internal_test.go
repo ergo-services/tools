@@ -87,6 +87,24 @@ func TestWarnTierNeverWritesToStdout(t *testing.T) {
 	}
 }
 
+func TestWarnTierPrintsAFindingOnce(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Tiers[2] = SeverityWarn
+	pass, m := stubPass(t, cfg)
+
+	_, stderr := capture(t, func() {
+		for i := 0; i < 2; i++ {
+			m.Report(pass, pass.Files[0].Pos(),
+				Finding{Rule: "A2011", Kind: KindShape, Tier: 2, ID: "example.com/app/x.Args"},
+				"the same finding from a package and its test variant")
+		}
+	})
+
+	if n := strings.Count(stderr, "the same finding from a package and its test variant"); n != 1 {
+		t.Errorf("the finding reached stderr %d times, want once:\n%s", n, stderr)
+	}
+}
+
 func TestErrorTierGoesThroughReport(t *testing.T) {
 	cfg := DefaultConfig()
 	pass, m := stubPass(t, cfg)

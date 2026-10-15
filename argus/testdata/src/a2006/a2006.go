@@ -59,6 +59,19 @@ func (t *Ticker) HandleEvent(event gen.MessageEvent) error {
 	return nil
 }
 
+// Time.After is a comparison between two instants, not the package timer
+func (t *Ticker) HandleInspect(from gen.PID, item ...string) map[string]string {
+	cutoff := time.Now().Add(-time.Minute)
+	seen := time.Now()
+	if seen.After(cutoff) {
+		return nil
+	}
+
+	// the package level timer in the same callback is still reported
+	<-time.After(time.Millisecond) // want `A2006.*time.After inside HandleInspect`
+	return nil
+}
+
 // a recorded exception is silent
 func (t *Ticker) Terminate(reason error) {
 	//argus:allow A2006 the deadline is enforced by the caller

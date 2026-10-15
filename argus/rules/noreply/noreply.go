@@ -21,16 +21,28 @@ Returning (nil, nil) is legitimate: the runtime sends nothing for a nil result, 
 how a deferred reply works. The callback stores the caller's PID and ref, and something
 later calls SendResponse. So the shape alone is not a defect.
 
-It becomes one when no reply is possible at all. The rule requires three things
-together: every return path is (nil, nil), the behavior type declares no method that
-replies, and the gen.Ref parameter is never used. That last one is the soundness gate
-rather than a heuristic: waitResponse drops any response whose ref differs from the one
-it is waiting for, so a callback that never even looks at its ref cannot participate in
-a reply, and no later code can reply on its behalf. The caller then waits out its full
-request timeout and gets ErrTimeout.
+It becomes one when no reply is possible for a request the callback acts on. The rule
+requires four things together: every return path is (nil, nil), the behavior type
+declares no method that replies, the gen.Ref parameter is never used, and the request
+is read. The unused ref is the soundness gate rather than a heuristic: waitResponse
+drops any response whose ref differs from the one it is waiting for, so a callback that
+never even looks at its ref cannot participate in a reply, and no later code can reply
+on its behalf. The caller then waits out its full request timeout and gets ErrTimeout.
 
 A use of ref inside a log argument still counts as unused, because logging a token is
 not keeping it.
+
+The last condition separates a handler that answers nothing from one that forgot to
+answer. A HandleCall that never reads its request treats every call alike, and with
+(nil, nil) everywhere it behaves exactly like the framework's own fallback, which logs
+and returns (nil, nil) for an actor or a router; a meta behavior has no fallback to
+inherit, and the framework's meta processes (port, TCP, UDP, web) declare precisely
+this stub. Writing it out is how a type says it has no synchronous surface, the caller
+of such a type gets the same timeout either way, and nothing in the code tells a
+mistake from the intent, so the stub is not reported. Logging the request, its type
+for instance, does not count as reading it. A handler that does read the request,
+switching on its type or passing it on, and still never answers is the defect: every
+caller of the requests it handles times out.
 
 The reply check is deliberately conservative. It reads the explicitly declared methods
 of the behavior type, not the promoted method set: the promoted set contains
@@ -86,18 +98,17 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
-		witness := "discards request"
-		if request := paramNamed(pass, cb.Decl, "request", "message"); request != nil &&
-			usedOutsideLog(pass, cb.Decl.Body, request) {
-			witness = "inspects request"
+		request := requestParam(pass, cb.Decl)
+		if request == nil || usedOutsideLog(pass, cb.Decl.Body, request) == false {
+			continue
 		}
 
 		m.Report(pass, cb.Decl.Name.Pos(),
 			ergomodel.Finding{
 				Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
-				ID: ergomodel.CallbackID(cb), Witness: witness,
+				ID: ergomodel.CallbackID(cb), Witness: "inspects request",
 			},
-			"%s returns (nil, nil) on every path, never uses ref, and no method of %s replies, so no response is ever sent and every caller waits out its full request timeout before getting ErrTimeout; decline with SendResponseError(from, ref, gen.ErrUnsupported), or return the error as the result",
+			"%s reads the request but returns (nil, nil) on every path, never uses ref, and no method of %s replies, so no response is ever sent and every caller waits out its full request timeout before getting ErrTimeout; decline with SendResponseError(from, ref, gen.ErrUnsupported), or return the error as the result",
 			cb.Name, cb.Behavior.Obj().Name())
 	}
 	return nil, nil
@@ -211,23 +222,26 @@ func paramOfType(pass *analysis.Pass, decl *ast.FuncDecl, path string) types.Obj
 	return nil
 }
 
-func paramNamed(pass *analysis.Pass, decl *ast.FuncDecl, names ...string) types.Object {
-	if decl.Type.Params == nil {
+func requestParam(pass *analysis.Pass, decl *ast.FuncDecl) types.Object {
+	if decl.Type.Params == nil || len(decl.Type.Params.List) == 0 {
 		return nil
 	}
-	for _, want := range names {
-		for _, field := range decl.Type.Params.List {
-			for _, id := range field.Names {
-				if id.Name != want {
-					continue
-				}
-				if obj := pass.TypesInfo.Defs[id]; obj != nil {
-					return obj
-				}
-			}
-		}
+	field := decl.Type.Params.List[len(decl.Type.Params.List)-1]
+	if len(field.Names) == 0 {
+		return nil
 	}
-	return nil
+	id := field.Names[len(field.Names)-1]
+	if id.Name == "_" {
+		return nil
+	}
+	obj := pass.TypesInfo.Defs[id]
+	if obj == nil {
+		return nil
+	}
+	if iface, ok := types.Unalias(obj.Type()).(*types.Interface); ok == false || iface.NumMethods() != 0 {
+		return nil
+	}
+	return obj
 }
 
 func usedOutsideLog(pass *analysis.Pass, body *ast.BlockStmt, obj types.Object) bool {

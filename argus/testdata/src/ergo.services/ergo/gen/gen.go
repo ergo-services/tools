@@ -171,6 +171,12 @@ type Node interface {
 	CallPID(to PID, request any, timeout int) (any, error)
 }
 
+// Registrar is the node's service registry. Its Event is registered by the node and
+// never unregistered, so a monitor on it is not an operation on a peer.
+type Registrar interface {
+	Event() (Event, error)
+}
+
 type ProcessID struct {
 	Name Atom
 	Node Atom

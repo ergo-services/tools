@@ -11,9 +11,8 @@ import (
 const ruleID = "A1011"
 
 const (
-	defaultBudget  = 5
-	defaultRequest = 5
-	cappedBudget   = 15
+	defaultBudget = ergomodel.DefaultRequestTimeout
+	cappedBudget  = 3 * ergomodel.DefaultRequestTimeout
 )
 
 var Analyzer = &analysis.Analyzer{
@@ -37,6 +36,20 @@ reaches Init at twenty one sites and exactly one of them is syntactically visibl
 rest arriving through a library helper two frames down. The verdict is computed in the
 factory's own package and exported on the factory object, because the spawning package
 names the factory and nothing else.
+
+Only a framework request has an inner budget to set against the init budget. A sleep
+or a channel wait in Init has none, and it is A1002's finding; a request made from a
+closure Init only stores is not made in Init at all. The inner budget is the longest
+timeout among the requests Init makes, carried across packages with the blocking fact,
+with a request that names none counted at DefaultRequestTimeout: a default Call next to
+a three second CallWithTimeout is a five second wait. A timeout that does not resolve
+takes no part, and an Init whose requests all have one is not reported.
+
+The outer budget is read from the spawn options wherever the source decides it: a
+literal, a local variable together with the field writes that run on the way to the
+spawn, or an unexported package level variable nothing writes to. A budget the source
+does not decide, a value computed at run time or written in a branch, is unknown, and
+an unknown budget is not reported: unknown is not the default.
 
 Units differ and the diagnostic says which: ProcessOptions.InitTimeout and
 CallWithTimeout are ints in seconds, while context.WithTimeout and
@@ -63,16 +76,21 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
-		inner := info.InitTimeout
+		if info.InitBudget.Known == false {
+			continue
+		}
+		inner := info.InitBudget.Seconds
 		innerText := fmt.Sprintf("%ds", inner)
-		if inner == 0 {
-			inner = defaultRequest
-			innerText = fmt.Sprintf("the default %ds", defaultRequest)
+		if info.InitBudget.Default {
+			innerText = fmt.Sprintf("the default %ds", inner)
 		}
 
+		if point.Timeout.Set && point.Timeout.HasInt == false {
+			continue
+		}
 		outer := defaultBudget
 		outerText := fmt.Sprintf("the default %ds", defaultBudget)
-		if point.Timeout.HasInt && point.Timeout.Int > 0 {
+		if point.Timeout.Int > 0 {
 			outer = int(point.Timeout.Int)
 			outerText = fmt.Sprintf("%ds", outer)
 		}

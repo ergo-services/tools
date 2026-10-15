@@ -26,7 +26,9 @@ inspection, and not stopped when the process terminates. Use SendAfter or SendEv
 which deliver a real message to the actor.
 
 A time.After in a select arm is bounding a wait rather than scheduling work, which is
-the documented way to bound a channel receive, and is not reported.
+the documented way to bound a channel receive, and is not reported. Only the package
+level functions are timers: the method Time.After compares two instants and is not
+reported either.
 
 Source: messages.md`,
 	URL:      "https://docs.ergo.services/tools/argus#A2006",
@@ -121,8 +123,11 @@ func timeScheduler(info *types.Info, call *ast.CallExpr) (string, bool) {
 	default:
 		return "", false
 	}
-	obj := info.Uses[sel.Sel]
-	if obj == nil || obj.Pkg() == nil || obj.Pkg().Path() != "time" {
+	fn, ok := info.Uses[sel.Sel].(*types.Func)
+	if ok == false || fn.Pkg() == nil || fn.Pkg().Path() != "time" {
+		return "", false
+	}
+	if sig, ok := fn.Type().(*types.Signature); ok == false || sig.Recv() != nil {
 		return "", false
 	}
 	return sel.Sel.Name, true

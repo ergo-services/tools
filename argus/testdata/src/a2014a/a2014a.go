@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app"
 	"ergo.services/ergo/gen"
 )
 
@@ -312,3 +313,280 @@ func (p *Port) Terminate(reason error) {
 		p.out.Close()
 	}
 }
+
+// An application is excluded: the node never calls its Terminate after Init fails or
+// times out, and finalize calls it only for an incarnation whose Init succeeded.
+type Service struct {
+	app.Application
+	client *conn
+}
+
+func (s *Service) Init(ref gen.Ref, mode gen.ApplicationMode) error {
+	link, err := dial("broker")
+	if err != nil {
+		return err
+	}
+	s.client = link
+	return nil
+}
+
+func (s *Service) Terminate(reason error) {
+	s.client.Close()
+}
+
+// One field is one defect however often Terminate touches it: reported once, at the
+// first dereference.
+type Repeated struct {
+	act.Actor
+	link *conn
+}
+
+func (r *Repeated) Init(args ...any) error {
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	r.link = &conn{}
+	return nil
+}
+
+func (r *Repeated) Terminate(reason error) {
+	_ = r.link.open // want `A2014a.*Terminate dereferences link`
+	r.link.Close()
+	_ = r.link.open
+}
+
+type lease struct {
+	link  *conn
+	until int64
+}
+
+func (l *lease) release() {}
+
+// held is set only from a handler, so on a half built receiver it is false: what runs
+// under it never meets the nil lease, and neither does anything behind a condition
+// that is false at the zero value of a field only a handler writes. Each guard form
+// covers its own late field, so each is checked on its own.
+type Holder struct {
+	act.Actor
+	pub    *lease
+	stats  *lease
+	queue  *lease
+	backup *lease
+	held   bool
+	terms  int
+	peers  []gen.PID
+	peer   *conn
+}
+
+func (h *Holder) Init(args ...any) error {
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	h.pub = &lease{}
+	h.stats = &lease{}
+	h.queue = &lease{}
+	h.backup = &lease{}
+	return nil
+}
+
+func (h *Holder) HandleMessage(from gen.PID, message any) error {
+	h.held = true
+	h.terms++
+	h.peers = append(h.peers, from)
+	h.peer = &conn{}
+	return nil
+}
+
+func (h *Holder) Terminate(reason error) {
+	if h.held {
+		h.pub.release()
+		h.pub.link.Close()
+	}
+	if h.terms > 0 && h.stats.until > 0 {
+		h.stats.release()
+	}
+	if len(h.peers) != 0 {
+		h.queue.release()
+	}
+	if h.peer == nil {
+		return
+	}
+	h.backup.release()
+}
+
+// The finding moves to the first dereference the guard does not cover.
+type HolderLater struct {
+	act.Actor
+	pub  *lease
+	held bool
+}
+
+func (h *HolderLater) Init(args ...any) error {
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	h.pub = &lease{}
+	return nil
+}
+
+func (h *HolderLater) HandleMessage(from gen.PID, message any) error {
+	h.held = true
+	return nil
+}
+
+func (h *HolderLater) Terminate(reason error) {
+	if h.held {
+		h.pub.release()
+	}
+	h.pub.until = 0 // want `A2014a.*Terminate dereferences pub`
+}
+
+// A condition the zero value satisfies says nothing about how far Init got.
+type ZeroHolds struct {
+	act.Actor
+	pub  *lease
+	held bool
+}
+
+func (z *ZeroHolds) Init(args ...any) error {
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	z.pub = &lease{}
+	return nil
+}
+
+func (z *ZeroHolds) HandleMessage(from gen.PID, message any) error {
+	z.held = true
+	return nil
+}
+
+func (z *ZeroHolds) Terminate(reason error) {
+	if z.held == false {
+		z.pub.release() // want `A2014a.*Terminate dereferences pub`
+	}
+}
+
+// A guard field Init can reach is no guard: here Init sets it through a helper before
+// the step that fails.
+type InitSets struct {
+	act.Actor
+	pub  *lease
+	held bool
+}
+
+func (s *InitSets) Init(args ...any) error {
+	s.claim()
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	s.pub = &lease{}
+	return nil
+}
+
+func (s *InitSets) claim() { s.held = true }
+
+func (s *InitSets) Terminate(reason error) {
+	if s.held {
+		s.pub.release() // want `A2014a.*Terminate dereferences pub`
+	}
+}
+
+// Neither is a field the factory sets before the process exists.
+type FactorySets struct {
+	act.Actor
+	pub  *lease
+	held bool
+}
+
+func factoryFactorySets() gen.ProcessBehavior { return &FactorySets{held: true} }
+
+func (f *FactorySets) Init(args ...any) error {
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	f.pub = &lease{}
+	return nil
+}
+
+func (f *FactorySets) Terminate(reason error) {
+	if f.held {
+		f.pub.release() // want `A2014a.*Terminate dereferences pub`
+	}
+}
+
+// Nor one Terminate sets itself: Terminate runs on the half built receiver too.
+type SelfSets struct {
+	act.Actor
+	pub     *lease
+	closing bool
+}
+
+func (s *SelfSets) Init(args ...any) error {
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	s.pub = &lease{}
+	return nil
+}
+
+func (s *SelfSets) Terminate(reason error) {
+	s.closing = true
+	if s.closing {
+		s.pub.release() // want `A2014a.*Terminate dereferences pub`
+	}
+}
+
+// Nor one whose writer is handed out as a value, since whoever holds it can call it.
+type Handed struct {
+	act.Actor
+	pub    *lease
+	held   bool
+	onTick func()
+}
+
+func (h *Handed) Init(args ...any) error {
+	h.onTick = h.mark
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	h.pub = &lease{}
+	return nil
+}
+
+func (h *Handed) mark() { h.held = true }
+
+func (h *Handed) Terminate(reason error) {
+	if h.held {
+		h.pub.release() // want `A2014a.*Terminate dereferences pub`
+	}
+}
+
+// Nor anything once Init hands its receiver to code the analysis cannot follow.
+type Escaping struct {
+	act.Actor
+	pub  *lease
+	held bool
+}
+
+func (e *Escaping) Init(args ...any) error {
+	register(e)
+	if len(args) == 0 {
+		return errors.New("no arguments")
+	}
+	e.pub = &lease{}
+	return nil
+}
+
+func (e *Escaping) HandleMessage(from gen.PID, message any) error {
+	e.held = true
+	return nil
+}
+
+func (e *Escaping) Terminate(reason error) {
+	if e.held {
+		e.pub.release() // want `A2014a.*Terminate dereferences pub`
+	}
+}
+
+func register(b gen.ProcessBehavior) {}

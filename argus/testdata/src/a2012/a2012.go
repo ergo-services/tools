@@ -27,7 +27,7 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 	// ends the process and makes the supervisor restart it.
 	if err := w.Send(w.peer, message); err != nil {
 		w.Log().Error("send to %s failed: %s", w.peer, err)
-		return err // want `\[tier2\] \[A2012\] HandleMessage logs this failure at Error level and then returns it as a termination reason \(Send\)`
+		return err // want `\[tier2\] \[A2012\] HandleMessage logs this failure at Error level and then returns it as a termination reason \(Send\), which ends the process abnormally; .* under a supervisor a Permanent or Transient child is restarted for it, burning restart intensity, while a Temporary one stays down`
 	}
 
 	// A bare return with no log is the documented let-it-crash, and stays silent.
@@ -88,8 +88,9 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 		return err
 	}
 
-	// A helper that performs the send keeps the transient property in its own frame,
-	// which is out of scope in v1.
+	// A helper that performs the send keeps the transient property in its own frame, so
+	// the callback's own pair has no evidence. A pair inside the helper is reported
+	// there, see helpers.go; this helper has none.
 	if err := w.forward(message); err != nil {
 		w.Log().Error("forward failed: %s", err)
 		return err
@@ -117,11 +118,13 @@ func (w *Worker) HandleMessageName(name gen.Atom, from gen.PID, message any) err
 	return nil
 }
 
-// The event callback and the SendEvent surface.
+// SendEvent is not a transient source: it fails only on this process's own registration
+// or token, or because the node is stopping, so "return nil" would leave a producer that
+// publishes nothing. This case used to be reported.
 func (w *Worker) HandleEvent(event gen.MessageEvent) error {
 	if err := w.SendEvent("ticks", w.token, event.Message); err != nil {
 		w.Log().Error("republish failed: %s", err)
-		return err // want `A2012.*HandleEvent logs this failure at Error level`
+		return err
 	}
 	return nil
 }

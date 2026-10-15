@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"net"
+	"net/netip"
 	"time"
 
 	"ergo.services/ergo/act"
@@ -42,7 +42,7 @@ type connection struct {
 	state   int
 	node    gen.Atom
 	cluster string
-	ip      net.Addr
+	ip      netip.AddrPort
 
 	checkCancel gen.CancelFunc
 }

@@ -2,6 +2,7 @@ package logreturn
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 	"strings"
 
@@ -33,13 +34,21 @@ it would be wrong. All of these must hold: the log is at Error level, on the fra
 own gen.Log; the log is the statement immediately before the return, in the same
 statement list; and the returned error is demonstrably transient, meaning a framework
 Err* sentinel from a fixed table, or a local assigned exactly once from a framework send
-or request in this same callback, or an fmt.Errorf with %w wrapping one of those. An
+or request in the same function, or an fmt.Errorf with %w wrapping one of those. An
 error of unknown provenance is left alone: there is no evidence the process could have
-continued.
+continued. SendEvent is not a transient source: it fails only on this process's own
+registration or token, or because the node is stopping, so ignoring the failure would
+leave a producer that publishes nothing.
 
-Do not gate on the restart strategy. The strategy switch has no Permanent case, so every
-reason reaches the restart path, and a Temporary child that is not restarted is a worse
-outcome rather than an exempt one.
+The pair is matched in the callback and in the helpers of the same behavior whose error
+the callback returns, directly or through a local bound to the helper's call, the way
+A2029 follows them. A helper that is itself one of these callbacks is analysed as its
+own root, and a helper reached from several callbacks is reported once.
+
+Do not gate on the restart strategy. An abnormal reason restarts a Permanent and a
+Transient child alike, and a Temporary child that is not restarted is a worse outcome
+rather than an exempt one, so the message states what each strategy does instead of
+guessing which one the parent uses.
 
 The fix is to return nil after logging, or gen.TerminateReasonNormal to stop on purpose.
 No code fix is offered: "return nil" is right in the common case, but applying it
@@ -73,9 +82,29 @@ var transientSentinels = map[string]bool{
 	"ErrDiscarded":          true,
 }
 
+var ownStateSenders = map[string]bool{
+	"SendEvent": true,
+}
+
+type site struct {
+	ret     *ast.ReturnStmt
+	witness string
+	chain   []string
+}
+
+type walker struct {
+	pass  *analysis.Pass
+	m     *ergomodel.Model
+	owner *types.Named
+	roots map[*types.Func]bool
+	seen  map[*types.Func]bool
+}
+
 func run(pass *analysis.Pass) (any, error) {
 	m := ergomodel.From(pass)
 
+	var analysed []*ergomodel.Callback
+	roots := map[*types.Func]bool{}
 	for _, cb := range m.Callbacks {
 		if callbackNames[cb.Name] == false || cb.Meta {
 			continue
@@ -84,39 +113,124 @@ func run(pass *analysis.Pass) (any, error) {
 		if singleErrorResult(pass, cb.Decl) == false {
 			continue
 		}
+		analysed = append(analysed, cb)
+		if fn, ok := pass.TypesInfo.Defs[cb.Decl.Name].(*types.Func); ok {
+			roots[fn] = true
+		}
+	}
 
-		sends := sendResultLocals(pass, m, cb.Decl.Body)
+	reported := map[token.Pos]bool{}
+	for _, cb := range analysed {
 		supervisor := embedsSupervisor(cb.Behavior)
+		w := &walker{pass: pass, m: m, owner: cb.Behavior, roots: roots, seen: map[*types.Func]bool{}}
 
-		for _, list := range statementLists(cb.Decl.Body) {
-			for i := 0; i+1 < len(list); i++ {
-				if isErrorLog(pass, list[i]) == false {
-					continue
-				}
-				ret, ok := list[i+1].(*ast.ReturnStmt)
-				if ok == false || len(ret.Results) != 1 {
-					continue
-				}
-				witness, ok := transientProvenance(pass, ret.Results[0], sends)
-				if ok == false {
-					continue
-				}
-
-				tail := "which ends the process; the runtime then logs the same failure again as \"process terminated abnormally\" and the supervisor restarts it, burning restart intensity, because the strategy switch has no Permanent case"
-				if supervisor {
-					tail = "which ends this supervisor and, one child-exit hop later, every child under it"
-				}
-				m.Report(pass, ret.Pos(),
-					ergomodel.Finding{
-						Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
-						ID: ergomodel.CallbackID(cb), Witness: witness,
-					},
-					"%s logs this failure at Error level and then returns it as a termination reason (%s), %s; return nil after logging, or gen.TerminateReasonNormal to stop on purpose",
-					cb.Name, witness, tail)
+		for _, s := range w.sites(cb.Decl, nil) {
+			if reported[s.ret.Pos()] == true {
+				continue
 			}
+			reported[s.ret.Pos()] = true
+
+			tail := "which ends the process abnormally; the runtime then logs the same failure again as \"process terminated abnormally\", and under a supervisor a Permanent or Transient child is restarted for it, burning restart intensity, while a Temporary one stays down"
+			if supervisor {
+				tail = "which ends this supervisor and, one child-exit hop later, every child under it"
+			}
+			id := ergomodel.CallbackID(cb)
+			if len(s.chain) > 0 {
+				id += ":" + strings.Join(s.chain, ">")
+			}
+			m.Report(pass, s.ret.Pos(),
+				ergomodel.Finding{
+					Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
+					ID: id, Witness: s.witness,
+				},
+				"%s%s logs this failure at Error level and then returns it as a termination reason (%s), %s; return nil after logging, or gen.TerminateReasonNormal to stop on purpose",
+				cb.Name, via(s.chain), s.witness, tail)
 		}
 	}
 	return nil, nil
+}
+
+func via(chain []string) string {
+	if len(chain) == 0 {
+		return ""
+	}
+	return " through " + strings.Join(chain, " -> ")
+}
+
+func (w *walker) sites(decl *ast.FuncDecl, chain []string) []site {
+	if decl == nil || decl.Body == nil {
+		return nil
+	}
+	var out []site
+
+	sends := sendResultLocals(w.pass, w.m, decl.Body)
+	for _, list := range statementLists(decl.Body) {
+		for i := 0; i+1 < len(list); i++ {
+			if isErrorLog(w.pass, list[i]) == false {
+				continue
+			}
+			ret, ok := list[i+1].(*ast.ReturnStmt)
+			if ok == false || len(ret.Results) != 1 {
+				continue
+			}
+			witness, ok := transientProvenance(w.pass, ret.Results[0], sends)
+			if ok == false {
+				continue
+			}
+			out = append(out, site{ret: ret, witness: witness, chain: chain})
+		}
+	}
+
+	ast.Inspect(decl.Body, func(n ast.Node) bool {
+		if _, ok := n.(*ast.FuncLit); ok {
+			return false
+		}
+		ret, ok := n.(*ast.ReturnStmt)
+		if ok == false || len(ret.Results) != 1 {
+			return true
+		}
+		callee := w.returnedHelper(decl, ret.Results[0], ret.Pos())
+		if callee == nil || w.seen[callee] == true || w.roots[callee] == true {
+			return true
+		}
+		helper := w.m.DeclOf(callee)
+		if helper == nil || singleErrorResult(w.pass, helper) == false {
+			return true
+		}
+		w.seen[callee] = true
+		deeper := append(append([]string{}, chain...), callee.Name())
+		out = append(out, w.sites(helper, deeper)...)
+		return true
+	})
+	return out
+}
+
+func (w *walker) returnedHelper(decl *ast.FuncDecl, result ast.Expr, at token.Pos) *types.Func {
+	var call *ast.CallExpr
+	switch x := result.(type) {
+	case *ast.CallExpr:
+		call = x
+	case *ast.Ident:
+		bound, ok := w.m.BoundBefore(decl, x, at)
+		if ok == false {
+			return nil
+		}
+		call, _ = bound.(*ast.CallExpr)
+	}
+	if call == nil {
+		return nil
+	}
+	var fn *types.Func
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		fn, _ = w.pass.TypesInfo.Uses[fun.Sel].(*types.Func)
+	case *ast.Ident:
+		fn, _ = w.pass.TypesInfo.Uses[fun].(*types.Func)
+	}
+	if fn == nil || ownerOf(fn) != w.owner {
+		return nil
+	}
+	return fn
 }
 
 func statementLists(body *ast.BlockStmt) [][]ast.Stmt {
@@ -265,7 +379,7 @@ func frameworkSender(pass *analysis.Pass, m *ergomodel.Model, call *ast.CallExpr
 	if ok == false || fn.Pkg() == nil {
 		return "", false
 	}
-	if strings.HasPrefix(fn.Pkg().Path(), "ergo.services/ergo/") == false {
+	if strings.HasPrefix(fn.Pkg().Path(), "ergo.services/ergo/") == false || ownStateSenders[fn.Name()] == true {
 		return "", false
 	}
 	for _, s := range m.Config().Senders {
@@ -330,4 +444,17 @@ func recvName(fn *types.Func) string {
 		return ""
 	}
 	return named.Obj().Name()
+}
+
+func ownerOf(fn *types.Func) *types.Named {
+	sig, ok := fn.Type().(*types.Signature)
+	if ok == false || sig.Recv() == nil {
+		return nil
+	}
+	t := sig.Recv().Type()
+	if ptr, ok := t.(*types.Pointer); ok == true {
+		t = ptr.Elem()
+	}
+	named, _ := t.(*types.Named)
+	return named
 }

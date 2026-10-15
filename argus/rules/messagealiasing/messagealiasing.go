@@ -28,20 +28,40 @@ the model computes per send:
 
   transferred  allocated in this callback and unreachable from the actor afterwards.
                Nothing is shared, so there is no finding at all.
-  received     the payload is memory that arrived in a message and is forwarded on.
-               Ownership stays with whoever built it, and the question belongs at
-               that sender, so this reports at tier 2.
+  received     the payload is memory that arrived in a message, or came back as the
+               response to a request, and is forwarded on. Ownership stays with
+               whoever built it, and the question belongs at that sender, so this
+               reports at tier 2.
   unknown      the payload came from a parameter this package cannot resolve, or from
                a call whose result origin is not known. Tier 2.
   owned        the payload is reachable from a field of the sending actor. Tier 1 when
-               the actor writes into that field somewhere, which is the race; tier 2
-               when it only ever replaces the whole value, where the receiver reads a
-               value nobody mutates and only the type fails to say so.
+               the actor writes into the memory the payload holds, which is the race;
+               tier 2 when it only ever replaces the whole value, where the receiver
+               reads a value nobody mutates and only the type fails to say so.
+
+What counts as a write into that memory is decided by access path. A write is the
+race when it lands under the part of the field the payload holds and goes through a
+pointer, a map or a slice to get there: a value field of a value struct is invisible
+to a copy, an insert into or a delete from a map moves the map and not a value
+already copied out of it, and a flag in an element is not the slice next to it. A
+write made where only Init can be running does not count either, because Init runs
+once before every other callback; a send inside Init still sees the writes Init goes
+on to make. A parameter of an unexported helper resolves at its callers, and at
+theirs, a few levels deep, and a store into the actor's state counts only on a path
+that can reach the send.
 
 The verdict is narrowed by guardedness of the referenced type: a pointee that
 synchronizes its own state (a mutex field, all atomic fields, sync.Map) is
 deliberately shared and is not reported. On a production corpus nine in ten shared
-pointees were guarded, so without this gate the rule buries its own findings.
+pointees were guarded, so without this gate the rule buries its own findings. The
+gate, like the allowlist, applies to each part of the type on its own: a []byte or a
+guarded pointer drops out, and the slice declared after it still counts. The finding
+names the field through which the payload reaches the memory behind the verdict.
+
+A send to the actor's own mailbox, by its PID, its registered name or an alias it
+created, is not reported: one actor handles its mailbox one message at a time, so
+no second goroutine reads the payload. A meta process is not exempt, since its
+Start loop and its handlers run on different goroutines.
 
 A payload that is, or carries, a field of the sending actor's own receiver belongs to
 A1006 instead. Both rules ask the model the same question, so exactly one of them
@@ -69,11 +89,12 @@ func run(pass *analysis.Pass) (any, error) {
 		if types.IsInterface(types.Unalias(t)) {
 			continue
 		}
-		if _, ok := m.AllowedType(t); ok {
+
+		if isInspectReply(site.Method, t) {
 			continue
 		}
 
-		if isInspectReply(site.Method, t) {
+		if m.SelfTarget(site) {
 			continue
 		}
 
@@ -81,19 +102,8 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
-		s := m.Shape(t)
-		if s.Aliasing == false {
-			continue
-		}
-
-		ref := s.Ref
-		if ref == nil {
-			ref = t
-		}
-		if _, ok := m.AllowedType(ref); ok {
-			continue
-		}
-		if m.Guarded(ref) == ergomodel.GuardGuarded {
+		exposure, exposed := m.Exposed(t)
+		if exposed == false {
 			continue
 		}
 
@@ -101,7 +111,7 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 
-		witness := s.Witness
+		witness := m.WitnessVia(t, site.Origin.Via)
 		if witness == "" {
 			witness = typeName(t)
 		}
@@ -109,7 +119,7 @@ func run(pass *analysis.Pass) (any, error) {
 
 		m.Report(pass, site.Payload.Pos(),
 			ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindShape, Tier: tier,
-				ID: ergomodel.TypeID(t), Witness: witness},
+				ID: ergomodel.TypeID(t), Witness: exposure.Witness},
 			"%s is sent as a message and shares memory with the sender: %s -> %s; local delivery does not copy, and %s",
 			typeName(t), typeName(t), witness, clause)
 	}

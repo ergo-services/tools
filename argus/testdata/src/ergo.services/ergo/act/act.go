@@ -83,6 +83,14 @@ func (a *Actor) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 	return nil, nil
 }
 func (a *Actor) DemonitorEvent(target gen.Event) error { return nil }
+func (a *Actor) MonitorAlias(target gen.Alias) error   { return nil }
+func (a *Actor) DemonitorPID(target gen.PID) error     { return nil }
+func (a *Actor) LinkAlias(target gen.Alias) error      { return nil }
+func (a *Actor) UnlinkPID(target gen.PID) error        { return nil }
+
+// SetTrapExit is what turns a link from a shared fate into a message: A2029 reports a
+// failed link only for a behavior that sets it.
+func (a *Actor) SetTrapExit(trap bool) {}
 func (a *Actor) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
 	return gen.Ref{}, nil
 }
@@ -157,6 +165,10 @@ type PoolOptions struct {
 type WebWorker struct{ Actor }
 
 type Supervisor struct{ Actor }
+
+// StartChild is how a SimpleOneForOne supervisor spawns from its template list, so its
+// call sites are the spawn points of the factories that list names.
+func (s *Supervisor) StartChild(name gen.Atom, args ...any) error { return nil }
 
 // Supervisor spec surface. The field names and the enum values match the real ones
 // exactly, because the rule reads resolved paths and numeric constants.

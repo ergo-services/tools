@@ -13,7 +13,7 @@ import (
 
 const ruleID = "A2028"
 
-const defaultRequestTimeout = 5
+const defaultRequestTimeout = ergomodel.DefaultRequestTimeout
 
 var Analyzer = &analysis.Analyzer{
 	Name: "argusA2028",
@@ -42,12 +42,19 @@ including panels whose own answer takes thirty microseconds.
 Reported: a framework request inside a HandleCall family callback whose timeout is
 not smaller than the caller's default budget. A resolvable timeout below the default
 is the fixed form and is not reported, because a handler that asks for two seconds
-can still answer within the caller's five.
+can still answer within the caller's five. Through a helper the budget is the longest
+of its requests, with one that names no timeout counted at the default, so a two
+second request does not hide a default one next to it. A timeout that does not
+resolve is not a budget, and is not reported.
 
 The other fix is to stop blocking: keep the caller's PID and ref, return (nil, nil),
 and answer later with SendResponse once the inner request comes back. The runtime
 sends nothing for a nil result precisely so that this works, and the handler is free
 for the next caller immediately.
+
+Only a request the handler makes before it returns counts. One in a closure the
+handler stores, registers or hands to another goroutine is made later, after the
+reply has gone.
 
 HandleMessage is out of scope. Its sender is not waiting on anything, so the harm
 there is mailbox latency rather than a reply nobody can receive, and that argument
@@ -91,10 +98,7 @@ func requests(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl) []req
 	var out []request
 	seen := map[token.Pos]bool{}
 
-	ast.Inspect(decl.Body, func(n ast.Node) bool {
-		if _, isGo := n.(*ast.GoStmt); isGo {
-			return false
-		}
+	m.InspectExecuted(decl.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if ok == false {
 			return true
@@ -104,28 +108,29 @@ func requests(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl) []req
 			return true
 		}
 
-		if timeout, isRequest := m.RequestTimeout(fn, call); isRequest {
-			if timeout > 0 && timeout < defaultRequestTimeout {
+		if budget, isRequest := m.RequestBudget(fn, call); isRequest {
+			if budget.Known == false || budget.Seconds < defaultRequestTimeout {
 				return true
 			}
 			seen[call.Pos()] = true
 			out = append(out, request{
-				pos: call.Pos(), budget: budgetOf(timeout), id: ergomodel.FuncID(fn),
+				pos: call.Pos(), budget: budgetOf(budget), id: ergomodel.FuncID(fn),
 				witness: fn.Name(),
 			})
 			return true
 		}
 
 		b := m.Behavior(fn)
-		if b.RoundTrip != frameworkRequest {
+		if b.Request == false {
 			return true
 		}
-		if b.Timeout > 0 && b.Timeout < defaultRequestTimeout {
+		budget := b.Budget()
+		if budget.Known == false || budget.Seconds < defaultRequestTimeout {
 			return true
 		}
 		seen[call.Pos()] = true
 		out = append(out, request{
-			pos: call.Pos(), budget: budgetOf(b.Timeout), id: ergomodel.FuncID(fn),
+			pos: call.Pos(), budget: budgetOf(budget), id: ergomodel.FuncID(fn),
 			through: ", through " + fn.Name(), witness: fn.Name(),
 		})
 		return true
@@ -133,13 +138,11 @@ func requests(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl) []req
 	return out
 }
 
-const frameworkRequest = "a request awaiting a reply"
-
-func budgetOf(timeout int) string {
-	if timeout == 0 {
-		return "the default 5s"
+func budgetOf(b ergomodel.Budget) string {
+	if b.Default {
+		return "the default " + strconv.Itoa(b.Seconds) + "s"
 	}
-	return strconv.Itoa(timeout) + "s"
+	return strconv.Itoa(b.Seconds) + "s"
 }
 
 func calleeFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {

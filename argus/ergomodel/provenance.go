@@ -35,19 +35,12 @@ type Origin struct {
 
 	Param   int
 	Mutated bool
-}
+	Recv    bool
+	Via     []*types.Var
 
-type ResultKind uint8
-
-const (
-	ResultUnknown ResultKind = iota
-	ResultFromParam
-	ResultFresh
-)
-
-type ResultOrigin struct {
-	Kind  ResultKind
-	Param int
+	pending   string
+	held      string
+	addressed bool
 }
 
 type bind struct {
@@ -60,19 +53,32 @@ type bind struct {
 type fieldWrite struct {
 	expr ast.Expr
 	pos  token.Pos
+	stmt ast.Stmt
+}
+
+type retain struct {
+	path  string
+	shown string
+	stmt  token.Pos
+	obj   types.Object
+	exact bool
 }
 
 type flow struct {
 	info     *types.Info
+	body     *ast.BlockStmt
+	labels   bool
 	recv     string
+	recvObj  types.Object
 	owner    string
 	params   map[string]int
 	binds    map[string][]bind
 	fields   map[string]map[string][]fieldWrite
-	ranges   map[string]ast.Expr
+	ranges   map[string][]bind
 	writes   map[string][]ast.Expr
+	copies   map[string][]ast.Expr
 	opaque   map[string]bool
-	retained map[string]string
+	retained map[string][]retain
 }
 
 func (m *Model) flowOf(decl *ast.FuncDecl) *flow {
@@ -107,14 +113,17 @@ func (m *Model) BoundBefore(decl *ast.FuncDecl, id *ast.Ident, at token.Pos) (as
 func (m *Model) buildFlow(decl *ast.FuncDecl) *flow {
 	f := &flow{
 		info:     m.pass.TypesInfo,
+		body:     decl.Body,
 		recv:     receiverName(decl),
+		recvObj:  receiverObject(m.pass.TypesInfo, decl),
 		params:   map[string]int{},
 		binds:    map[string][]bind{},
 		fields:   map[string]map[string][]fieldWrite{},
-		ranges:   map[string]ast.Expr{},
+		ranges:   map[string][]bind{},
 		writes:   map[string][]ast.Expr{},
+		copies:   map[string][]ast.Expr{},
 		opaque:   map[string]bool{},
-		retained: map[string]string{},
+		retained: map[string][]retain{},
 	}
 	if named, ok := receiverType(m.pass.TypesInfo, decl); ok {
 		f.owner = typePath(named)
@@ -134,6 +143,8 @@ func (m *Model) buildFlow(decl *ast.FuncDecl) *flow {
 
 	ast.Inspect(decl.Body, func(n ast.Node) bool {
 		switch x := n.(type) {
+		case *ast.LabeledStmt:
+			f.labels = true
 		case *ast.RangeStmt:
 			noteRange(f, x.Key, x.X)
 			noteRange(f, x.Value, x.X)
@@ -156,7 +167,8 @@ func noteRange(f *flow, target ast.Expr, src ast.Expr) {
 	if ok == false || id.Name == "_" {
 		return
 	}
-	f.ranges[id.Name] = src
+	f.ranges[id.Name] = append(f.ranges[id.Name],
+		bind{expr: src, index: -1, pos: id.Pos(), obj: f.info.ObjectOf(id)})
 }
 
 func noteTypeSwitch(f *flow, ts *ast.TypeSwitchStmt) {
@@ -180,18 +192,30 @@ func noteDecl(f *flow, ds *ast.DeclStmt) {
 	}
 	for _, spec := range gd.Specs {
 		vs, isVar := spec.(*ast.ValueSpec)
-		if isVar == false || len(vs.Values) == 0 {
+		if isVar == false {
 			continue
 		}
-		if len(vs.Values) != len(vs.Names) {
+		switch {
+		case len(vs.Values) == 0:
 			for _, name := range vs.Names {
+				f.binds[name.Name] = append(f.binds[name.Name],
+					bind{index: -1, pos: name.Pos(), obj: f.info.ObjectOf(name)})
+			}
+		case len(vs.Values) == len(vs.Names):
+			for i, name := range vs.Names {
+				f.binds[name.Name] = append(f.binds[name.Name],
+					bind{expr: vs.Values[i], index: -1, pos: name.Pos(), obj: f.info.ObjectOf(name)})
+			}
+		default:
+			call, isCall := vs.Values[0].(*ast.CallExpr)
+			for i, name := range vs.Names {
+				if isCall && len(vs.Values) == 1 {
+					f.binds[name.Name] = append(f.binds[name.Name],
+						bind{expr: call, index: i, pos: name.Pos(), obj: f.info.ObjectOf(name)})
+					continue
+				}
 				f.opaque[name.Name] = true
 			}
-			continue
-		}
-		for i, name := range vs.Names {
-			f.binds[name.Name] = append(f.binds[name.Name],
-				bind{expr: vs.Values[i], index: -1, pos: name.Pos(), obj: f.info.ObjectOf(name)})
 		}
 	}
 }
@@ -208,13 +232,27 @@ func (m *Model) noteAssign(f *flow, as *ast.AssignStmt) {
 	for i, lhs := range as.Lhs {
 		rhs := as.Rhs[i]
 
+		if _, isIdent := lhs.(*ast.Ident); isIdent == false {
+			if path, isState := m.recvPath(lhs, f.recvObj); isState {
+				m.noteStore(f, lhs, path, rhs, as)
+				continue
+			}
+		}
+
 		switch target := lhs.(type) {
 		case *ast.Ident:
 			if target.Name == "_" {
 				continue
 			}
 			if values, isSelfAppend := appendInto(target.Name, rhs); isSelfAppend {
-				f.writes[target.Name] = append(f.writes[target.Name], values...)
+				spread := rhs.(*ast.CallExpr).Ellipsis.IsValid()
+				for i, value := range values {
+					if spread && i == len(values)-1 {
+						f.copies[target.Name] = append(f.copies[target.Name], value)
+						continue
+					}
+					f.writes[target.Name] = append(f.writes[target.Name], value)
+				}
 				continue
 			}
 			f.binds[target.Name] = append(f.binds[target.Name],
@@ -224,15 +262,8 @@ func (m *Model) noteAssign(f *flow, as *ast.AssignStmt) {
 			if id, isIdent := target.X.(*ast.Ident); isIdent {
 				f.writes[id.Name] = append(f.writes[id.Name], rhs)
 			}
-			if field, isField := receiverSelector(target.X, f.recv); isField {
-				m.noteRetained(f, field, rhs, 0)
-			}
 
 		case *ast.SelectorExpr:
-			if field, isField := receiverSelector(target, f.recv); isField {
-				m.noteRetained(f, field, rhs, 0)
-				continue
-			}
 			base, path, isPath := fieldPath(target)
 			if isPath == false || base == f.recv {
 				continue
@@ -241,9 +272,24 @@ func (m *Model) noteAssign(f *flow, as *ast.AssignStmt) {
 				f.fields[base] = map[string][]fieldWrite{}
 			}
 			f.fields[base][path] = append(f.fields[base][path],
-				fieldWrite{expr: rhs, pos: target.Pos()})
+				fieldWrite{expr: rhs, pos: target.Pos(), stmt: as})
 		}
 	}
+}
+
+func (m *Model) noteStore(f *flow, lhs ast.Expr, path string, rhs ast.Expr, as *ast.AssignStmt) {
+	shown := f.recv + renderPath(path)
+	if values, isSelfAppend := m.selfAppend(lhs, rhs, f.recvObj); isSelfAppend {
+		spread := rhs.(*ast.CallExpr).Ellipsis.IsValid()
+		for i, value := range values {
+			if spread && i == len(values)-1 && m.elemExposed(m.pass.TypesInfo.TypeOf(value)) == false {
+				continue
+			}
+			m.noteRetained(f, path+"[]", shown+"[]", value, as.Pos(), false, 0)
+		}
+		return
+	}
+	m.noteRetained(f, path, shown, rhs, as.Pos(), true, 0)
 }
 
 func noteMultiValue(f *flow, as *ast.AssignStmt) {
@@ -289,8 +335,7 @@ func fieldPath(e ast.Expr) (string, string, bool) {
 }
 
 func (m *Model) noteBuiltinCopy(f *flow, call *ast.CallExpr) {
-	id, isIdent := call.Fun.(*ast.Ident)
-	if isIdent == false || id.Name != "copy" || len(call.Args) != 2 {
+	if len(call.Args) != 2 || m.isBuiltin(call, "copy") == false {
 		return
 	}
 	dst, isIdent := call.Args[0].(*ast.Ident)
@@ -300,7 +345,7 @@ func (m *Model) noteBuiltinCopy(f *flow, call *ast.CallExpr) {
 	if m.elemAliases(m.pass.TypesInfo.TypeOf(call.Args[1])) == false {
 		return
 	}
-	f.writes[dst.Name] = append(f.writes[dst.Name], call.Args[1])
+	f.copies[dst.Name] = append(f.copies[dst.Name], call.Args[1])
 }
 
 func bindIdent(f *flow, lhs ast.Expr, b bind) {
@@ -312,7 +357,7 @@ func bindIdent(f *flow, lhs ast.Expr, b bind) {
 	f.binds[id.Name] = append(f.binds[id.Name], b)
 }
 
-func (m *Model) noteRetained(f *flow, field string, rhs ast.Expr, depth int) {
+func (m *Model) noteRetained(f *flow, path string, shown string, rhs ast.Expr, stmt token.Pos, exact bool, depth int) {
 	if rhs == nil || depth > 6 {
 		return
 	}
@@ -321,26 +366,34 @@ func (m *Model) noteRetained(f *flow, field string, rhs ast.Expr, depth int) {
 	}
 	switch x := rhs.(type) {
 	case *ast.Ident:
-		f.retained[x.Name] = field
+		obj := f.info.Uses[x]
+		if obj != nil && obj == f.recvObj {
+			return
+		}
+		f.retained[x.Name] = append(f.retained[x.Name],
+			retain{path: path, shown: shown, stmt: stmt, obj: obj, exact: exact})
 
 	case *ast.ParenExpr:
-		m.noteRetained(f, field, x.X, depth+1)
+		m.noteRetained(f, path, shown, x.X, stmt, exact, depth+1)
 
 	case *ast.StarExpr:
-		m.noteRetained(f, field, x.X, depth+1)
+		m.noteRetained(f, path, shown, x.X, stmt, false, depth+1)
 
 	case *ast.SliceExpr:
-		m.noteRetained(f, field, x.X, depth+1)
+		m.noteRetained(f, path, shown, x.X, stmt, false, depth+1)
 
 	case *ast.IndexExpr:
-		m.noteRetained(f, field, x.X, depth+1)
+		m.noteRetained(f, path, shown, x.X, stmt, false, depth+1)
 
 	case *ast.SelectorExpr:
-		m.noteRetained(f, field, x.X, depth+1)
+		m.noteRetained(f, path, shown, x.X, stmt, false, depth+1)
+
+	case *ast.TypeAssertExpr:
+		m.noteRetained(f, path, shown, x.X, stmt, false, depth+1)
 
 	case *ast.UnaryExpr:
 		if x.Op == token.AND {
-			m.noteRetained(f, field, x.X, depth+1)
+			m.noteRetained(f, path, shown, x.X, stmt, false, depth+1)
 		}
 
 	case *ast.CompositeLit:
@@ -349,12 +402,23 @@ func (m *Model) noteRetained(f *flow, field string, rhs ast.Expr, depth int) {
 			if kv, isKV := elt.(*ast.KeyValueExpr); isKV {
 				value = kv.Value
 			}
-			m.noteRetained(f, field, value, depth+1)
+			m.noteRetained(f, path, shown, value, stmt, false, depth+1)
 		}
 
 	case *ast.CallExpr:
-		if m.isConversionCall(x) && len(x.Args) == 1 && isStringConversion(x) == false {
-			m.noteRetained(f, field, x.Args[0], depth+1)
+		switch {
+		case m.isConversionCall(x) && len(x.Args) == 1 && isStringConversion(x) == false:
+			m.noteRetained(f, path, shown, x.Args[0], stmt, exact, depth+1)
+		case m.isBuiltin(x, "append"):
+			for i, arg := range x.Args {
+				if i == 0 && isEmptyOrNil(arg) {
+					continue
+				}
+				if x.Ellipsis.IsValid() && i == len(x.Args)-1 && m.elemExposed(m.pass.TypesInfo.TypeOf(arg)) == false {
+					continue
+				}
+				m.noteRetained(f, path, shown, arg, stmt, false, depth+1)
+			}
 		}
 	}
 }
@@ -375,106 +439,146 @@ func appendInto(name string, rhs ast.Expr) ([]ast.Expr, bool) {
 	return call.Args[1:], true
 }
 
+type walkKey struct {
+	expr      ast.Expr
+	pending   string
+	addressed bool
+	field     *types.Var
+}
+
 type provWalk struct {
-	m       *Model
-	f       *flow
-	inbound bool
-	inside  int
-	seen    map[ast.Expr]bool
-	roots   []Origin
+	m         *Model
+	f         *flow
+	inbound   bool
+	init      bool
+	at        token.Pos
+	pending   string
+	addressed bool
+	via       []*types.Var
+	lost      int
+	seen      map[walkKey]bool
+	roots     []Origin
 }
 
-func (m *Model) walkerFor(decl *ast.FuncDecl, inbound bool) *provWalk {
-	return &provWalk{m: m, f: m.flowOf(decl), inbound: inbound, seen: map[ast.Expr]bool{}}
+func (m *Model) walkerFor(decl *ast.FuncDecl, inbound bool, at token.Pos, init bool) *provWalk {
+	return &provWalk{m: m, f: m.flowOf(decl), inbound: inbound, init: init, at: at, seen: map[walkKey]bool{}}
 }
 
-func (w *provWalk) verdict() Origin {
+func (w *provWalk) verdict() Origin { return verdict(w.roots) }
+
+func verdict(roots []Origin) Origin {
 	out := Origin{Prov: ProvTransferred, Param: -1,
 		Witness: "built here, nothing else reaches it"}
-	for _, r := range w.roots {
-		if r.Prov >= out.Prov {
+	for _, r := range roots {
+		if rank(r) >= rank(out) {
 			out = r
 		}
 	}
 	return out
 }
 
+func rank(o Origin) int {
+	r := int(o.Prov) * 2
+	if o.Mutated {
+		r++
+	}
+	return r
+}
+
+func (w *provWalk) trail() []*types.Var {
+	if len(w.via) == 0 {
+		return nil
+	}
+	return append([]*types.Var(nil), w.via...)
+}
+
+func (w *provWalk) enter(field *types.Var) bool {
+	if field == nil || w.lost > 0 || w.pending != "" {
+		return false
+	}
+	w.via = append(w.via, field)
+	return true
+}
+
+func (w *provWalk) leave(entered bool) {
+	if entered {
+		w.via = w.via[:len(w.via)-1]
+	}
+}
+
 func (w *provWalk) add(p Provenance, witness string, pos token.Pos) {
-	w.roots = append(w.roots, Origin{Prov: p, Witness: witness, Pos: pos, Param: -1})
+	w.roots = append(w.roots, Origin{Prov: p, Witness: witness, Pos: pos, Param: -1, Via: w.trail()})
 }
 
 func (w *provWalk) addParam(name string, index int, pos token.Pos) {
+	o := Origin{Prov: ProvUnknown, Witness: "parameter " + name, Pos: pos, Param: index,
+		Via: w.trail(), pending: w.pending, addressed: w.addressed}
 	if w.inbound {
-		w.roots = append(w.roots,
-			Origin{Prov: ProvReceived, Witness: "arrived in " + name, Pos: pos, Param: index})
-		return
+		o.Prov, o.Witness = ProvReceived, "arrived in "+name
 	}
-	w.roots = append(w.roots,
-		Origin{Prov: ProvUnknown, Witness: "parameter " + name, Pos: pos, Param: index})
+	w.roots = append(w.roots, o)
 }
 
-func (w *provWalk) addOwned(field string, pos token.Pos, note string) {
-	mutated := w.m.FieldMutated(w.f.owner, field, w.inside > 0)
-	witness := field + note + ", only ever replaced whole"
+func (w *provWalk) owned(held string, deep bool, shown string, pos token.Pos, addressed bool) {
+	addressed = addressed || w.addressed
+	mutated := w.m.written(w.f.owner, held, addressed, w.init)
+	witness := shown + ", only ever replaced whole"
 	switch {
-	case mutated && w.inside > 0:
-		witness = field + note + ", written through"
+	case mutated && deep == false:
+		witness = shown + ", mutated in place"
 	case mutated:
-		witness = field + note + ", mutated in place"
+		witness = shown + ", written through"
 	}
-	w.roots = append(w.roots,
-		Origin{Prov: ProvOwned, Witness: witness, Pos: pos, Param: -1, Mutated: mutated})
+	w.roots = append(w.roots, Origin{Prov: ProvOwned, Witness: witness, Pos: pos, Param: -1,
+		Mutated: mutated, Recv: true, Via: w.trail(), held: held, addressed: addressed})
 }
 
 func (w *provWalk) walk(e ast.Expr, depth int) {
-	if e == nil || depth > 8 || w.seen[e] {
+	if e == nil || depth > 8 {
 		return
 	}
-	w.seen[e] = true
+	key := walkKey{expr: e, pending: w.pending, addressed: w.addressed}
+	if len(w.via) > 0 {
+		key.field = w.via[len(w.via)-1]
+	}
+	if w.seen[key] {
+		return
+	}
+	w.seen[key] = true
 
 	t := w.m.pass.TypesInfo.TypeOf(e)
-	if t != nil && w.m.Shape(t).Aliasing == false {
+	if t != nil && w.shares(t) == false {
 		return
 	}
 
 	switch x := e.(type) {
 	case *ast.CompositeLit:
-		for _, elt := range x.Elts {
-			value := elt
-			if kv, isKV := elt.(*ast.KeyValueExpr); isKV {
-				value = kv.Value
-			}
-			w.walk(value, depth+1)
-		}
+		w.literal(x, t, depth)
 
 	case *ast.ParenExpr:
 		w.walk(x.X, depth+1)
 
 	case *ast.StarExpr:
-		w.walk(x.X, depth+1)
+		w.project("*", x.X, depth+1)
 
 	case *ast.SliceExpr:
-		w.deeper(x.X, depth+1)
+		w.slice(x, depth+1)
 
 	case *ast.IndexExpr:
-		w.deeper(x.X, depth+1)
+		w.project(indexStep(w.m.pass.TypesInfo.TypeOf(x.X)), x.X, depth+1)
 
 	case *ast.TypeAssertExpr:
 		w.walk(x.X, depth+1)
 
 	case *ast.UnaryExpr:
 		if x.Op == token.AND {
-			w.walk(x.X, depth+1)
+			w.address(x.X, depth+1)
 			return
 		}
 		w.add(ProvUnknown, short(t), x.Pos())
 
 	case *ast.SelectorExpr:
-		if field, isField := receiverSelector(x, w.f.recv); isField {
-			w.addOwned(field, x.Pos(), "")
-			return
-		}
-		w.walk(x.X, depth+1)
+		w.selector(x, depth)
 
 	case *ast.Ident:
 		w.ident(x, depth)
@@ -490,17 +594,277 @@ func (w *provWalk) walk(e ast.Expr, depth int) {
 	}
 }
 
-func (w *provWalk) walkSpread(e ast.Expr, depth int) {
-	if w.m.elemAliases(w.m.pass.TypesInfo.TypeOf(e)) == false {
-		return
+func (w *provWalk) shares(t types.Type) bool {
+	if w.addressed {
+		return true
 	}
-	w.deeper(e, depth+1)
+	if w.lost == 0 && w.pending == "" {
+		return w.m.exposes(t)
+	}
+	return w.m.Shape(t).Aliasing
 }
 
-func (w *provWalk) deeper(e ast.Expr, depth int) {
-	w.inside++
+func (w *provWalk) walkAt(pending string, e ast.Expr, depth int) {
+	saved := w.pending
+	w.pending = pending
 	w.walk(e, depth)
-	w.inside--
+	w.pending = saved
+}
+
+func (w *provWalk) project(steps string, e ast.Expr, depth int) {
+	w.lost++
+	w.walkAt(steps+w.pending, e, depth)
+	w.lost--
+}
+
+func (w *provWalk) detached(e ast.Expr, depth int) {
+	w.lost++
+	w.walkAt("", e, depth)
+	w.lost--
+}
+
+func (w *provWalk) elements(e ast.Expr, depth int) {
+	if w.m.elemExposed(w.m.pass.TypesInfo.TypeOf(e)) == false {
+		return
+	}
+	steps := "[]" + w.pending
+	if strings.HasPrefix(w.pending, "[]") {
+		steps = w.pending
+	}
+	w.lost++
+	w.walkAt(steps, e, depth)
+	w.lost--
+}
+
+func (w *provWalk) literal(lit *ast.CompositeLit, t types.Type, depth int) {
+	var st *types.Struct
+	if t != nil {
+		st, _ = types.Unalias(t).Underlying().(*types.Struct)
+	}
+	head, rest := firstStep(w.pending)
+	addressed := w.addressed
+	w.addressed = false
+	defer func() { w.addressed = addressed }()
+
+	for i, elt := range lit.Elts {
+		value := elt
+		var field *types.Var
+		if kv, isKV := elt.(*ast.KeyValueExpr); isKV {
+			value = kv.Value
+			if key, isIdent := kv.Key.(*ast.Ident); isIdent && st != nil {
+				field = fieldNamed(st, key.Name)
+			}
+		} else if st != nil && i < st.NumFields() {
+			field = st.Field(i)
+		}
+
+		if w.pending != "" {
+			switch {
+			case field != nil && head == "."+field.Name():
+				w.walkAt(rest, value, depth+1)
+			case st == nil && (head == "[]" || head == "[#]"):
+				w.walkAt(rest, value, depth+1)
+			}
+			continue
+		}
+		entered := w.enter(field)
+		w.walk(value, depth+1)
+		w.leave(entered)
+	}
+}
+
+func typeAt(t types.Type, steps string) types.Type {
+	for t != nil && steps != "" {
+		head, rest := firstStep(steps)
+		switch u := t.Underlying().(type) {
+		case *types.Pointer:
+			if head != "*" {
+				return nil
+			}
+			t = u.Elem()
+		case *types.Slice:
+			t = u.Elem()
+		case *types.Map:
+			t = u.Elem()
+		case *types.Array:
+			t = u.Elem()
+		case *types.Chan:
+			t = u.Elem()
+		case *types.Struct:
+			field := fieldNamed(u, strings.TrimPrefix(head, "."))
+			if field == nil {
+				return nil
+			}
+			t = field.Type()
+		default:
+			return nil
+		}
+		steps = rest
+	}
+	return t
+}
+
+func fieldNamed(st *types.Struct, name string) *types.Var {
+	for i := 0; i < st.NumFields(); i++ {
+		if st.Field(i).Name() == name {
+			return st.Field(i)
+		}
+	}
+	return nil
+}
+
+func firstStep(path string) (string, string) {
+	switch {
+	case path == "":
+		return "", ""
+	case strings.HasPrefix(path, "*"):
+		return "*", path[1:]
+	case strings.HasPrefix(path, "[#]"):
+		return "[#]", path[3:]
+	case strings.HasPrefix(path, "[]"):
+		return "[]", path[2:]
+	}
+	end := strings.IndexAny(path[1:], ".[*")
+	if end < 0 {
+		return path, ""
+	}
+	return path[:end+1], path[end+1:]
+}
+
+func (w *provWalk) slice(x *ast.SliceExpr, depth int) {
+	if t := w.m.pass.TypesInfo.TypeOf(x.X); t != nil {
+		if _, isArray := t.Underlying().(*types.Array); isArray {
+			w.address(x.X, depth)
+			return
+		}
+	}
+	w.walk(x.X, depth)
+}
+
+func (w *provWalk) address(e ast.Expr, depth int) {
+	if strings.HasPrefix(w.pending, "*") {
+		w.walkAt(w.pending[1:], e, depth)
+		return
+	}
+	if w.pending != "" {
+		w.walk(e, depth)
+		return
+	}
+	if path, isState := w.m.recvPath(e, w.f.recvObj); isState && path != "" {
+		w.owned(path, false, "&"+w.f.recv+renderPath(path), e.Pos(), true)
+		return
+	}
+	addressed := w.addressed
+	w.addressed = true
+	w.walk(e, depth)
+	w.addressed = addressed
+}
+
+func (w *provWalk) selector(x *ast.SelectorExpr, depth int) {
+	steps, isField := w.m.fieldSteps(x)
+	if isField == false {
+		w.add(ProvUnknown, types.ExprString(x), x.Pos())
+		return
+	}
+	if id, isIdent := x.X.(*ast.Ident); isIdent && w.f.recvObj != nil && w.m.pass.TypesInfo.Uses[id] == w.f.recvObj {
+		held := strings.TrimPrefix(steps, "*") + w.pending
+		w.owned(held, w.pending != "", w.f.recv+renderPath(held), x.Pos(), false)
+		return
+	}
+	w.project(steps, x.X, depth+1)
+}
+
+func (w *provWalk) ident(id *ast.Ident, depth int) {
+	if id.Name == "nil" || id.Name == "_" {
+		return
+	}
+	obj := w.m.pass.TypesInfo.Uses[id]
+	if obj != nil && obj == w.f.recvObj {
+		held := w.pending
+		_, isPointer := obj.Type().Underlying().(*types.Pointer)
+		if isPointer {
+			held = strings.TrimPrefix(held, "*")
+		}
+		w.owned(held, held != "", w.f.recv+renderPath(held), id.Pos(), isPointer && w.pending == "")
+		return
+	}
+	if w.addressed && throughShared(w.pending) == false {
+		if part := typeAt(w.m.pass.TypesInfo.TypeOf(id), w.pending); part != nil && w.m.Shape(part).Aliasing == false {
+			return
+		}
+		w.addressed = false
+		defer func() { w.addressed = true }()
+	}
+	for _, r := range w.f.retained[id.Name] {
+		if r.obj != nil && obj != nil && r.obj != obj {
+			continue
+		}
+		if w.f.body != nil && w.f.labels == false && w.at.IsValid() && unreachable(w.f.body, w.at, r.stmt) {
+			continue
+		}
+		held := r.path
+		if r.exact {
+			held += w.pending
+		}
+		w.owned(held, w.pending != "", r.shown+" = "+id.Name, id.Pos(), false)
+	}
+	if fields := w.f.fields[id.Name]; len(fields) > 0 {
+		w.rebuilt(id, fields, depth)
+		return
+	}
+	w.sources(id, depth)
+}
+
+func (w *provWalk) sources(id *ast.Ident, depth int) {
+	obj := w.f.info.ObjectOf(id)
+	binds := sameVariable(w.f.binds[id.Name], obj)
+	ranges := sameVariable(w.f.ranges[id.Name], obj)
+	writes := w.f.writes[id.Name]
+	copies := w.f.copies[id.Name]
+	index, isParam := w.f.params[id.Name]
+
+	if isParam {
+		w.addParam(id.Name, index, id.Pos())
+	} else if len(binds) == 0 && len(ranges) == 0 && len(writes) == 0 && len(copies) == 0 {
+		w.add(ProvUnknown, id.Name, id.Pos())
+		return
+	}
+	if w.f.opaque[id.Name] {
+		w.add(ProvUnknown, id.Name, id.Pos())
+	}
+	for _, b := range binds {
+		w.walkBind(b, depth)
+	}
+	for _, r := range ranges {
+		w.project(indexStep(w.m.pass.TypesInfo.TypeOf(r.expr)), r.expr, depth+1)
+	}
+	head, rest := firstStep(w.pending)
+	for _, value := range writes {
+		switch {
+		case w.pending == "":
+			w.walk(value, depth+1)
+		case head == "[]" || head == "[#]":
+			w.walkAt(rest, value, depth+1)
+		default:
+			w.detached(value, depth+1)
+		}
+	}
+	for _, src := range copies {
+		w.elements(src, depth+1)
+	}
+}
+
+func sameVariable(binds []bind, obj types.Object) []bind {
+	if obj == nil {
+		return binds
+	}
+	out := binds[:0:0]
+	for _, b := range binds {
+		if b.obj == nil || b.obj == obj {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 func (w *provWalk) walkBind(b bind, depth int) {
@@ -512,108 +876,134 @@ func (w *provWalk) walkBind(b bind, depth int) {
 	w.callResult(call, b.index, depth+1)
 }
 
-func (w *provWalk) ident(id *ast.Ident, depth int) {
-	if id.Name == "nil" || id.Name == "_" {
-		return
+func (w *provWalk) rebuilt(id *ast.Ident, fields map[string][]fieldWrite, depth int) {
+	t := w.m.pass.TypesInfo.TypeOf(id)
+	var st *types.Struct
+	if t != nil {
+		st, _ = types.Unalias(t).Underlying().(*types.Struct)
 	}
-	if field, isRetained := w.f.retained[id.Name]; isRetained {
-		w.addOwned(field, id.Pos(), " = "+id.Name)
-		return
-	}
-	if index, isParam := w.f.params[id.Name]; isParam {
-		w.addParam(id.Name, index, id.Pos())
+	if st == nil || w.f.labels || insideClosure(ancestors(w.f.body, id.Pos())) {
+		w.sources(id, depth)
+		for _, list := range fields {
+			for _, write := range list {
+				w.detached(write.expr, depth+1)
+			}
+		}
 		return
 	}
 
-	if w.rebuilt(id, depth) {
-		return
-	}
-
-	binds := w.f.binds[id.Name]
-	rng, ranged := w.f.ranges[id.Name]
-	writes := w.f.writes[id.Name]
-
-	if len(binds) == 0 && ranged == false && len(writes) == 0 {
-		w.add(ProvUnknown, id.Name, id.Pos())
-		return
-	}
-	if w.f.opaque[id.Name] {
-		w.add(ProvUnknown, id.Name, id.Pos())
-	}
-	for _, b := range binds {
-		w.walkBind(b, depth)
-	}
-	if ranged {
-		w.deeper(rng, depth+1)
-	}
-	for _, value := range writes {
-		w.walk(value, depth+1)
+	consumed := map[string]bool{}
+	w.rebuildFrom(id, st, "", fields, consumed, depth)
+	for path, list := range fields {
+		if consumed[path] {
+			continue
+		}
+		for _, write := range list {
+			if write.pos < id.Pos() {
+				w.detached(write.expr, depth+1)
+			}
+		}
 	}
 }
 
-func (w *provWalk) rebuilt(id *ast.Ident, depth int) bool {
-	writes := w.f.fields[id.Name]
-	if len(writes) == 0 {
-		return false
-	}
-	st, isStruct := deref(w.m.pass.TypesInfo.TypeOf(id)).Underlying().(*types.Struct)
-	if isStruct == false {
-		return false
-	}
-
-	sources, ok := w.rebuiltFrom(st, "", writes, id.Pos(), 0)
-	if ok == false || len(sources) == 0 {
-		return false
-	}
-	for _, source := range sources {
-		w.walk(source, depth+1)
-	}
-	return true
-}
-
-func (w *provWalk) rebuiltFrom(st *types.Struct, prefix string,
-	writes map[string][]fieldWrite, before token.Pos, depth int) ([]ast.Expr, bool) {
-
-	if depth > 4 {
-		return nil, false
-	}
-	var sources []ast.Expr
+func (w *provWalk) rebuildFrom(id *ast.Ident, st *types.Struct, prefix string,
+	fields map[string][]fieldWrite, consumed map[string]bool, depth int) {
 
 	for i := 0; i < st.NumFields(); i++ {
 		field := st.Field(i)
-		if w.m.Shape(field.Type()).Aliasing == false {
+		if w.shares(field.Type()) == false {
 			continue
 		}
 		path := field.Name()
 		if prefix != "" {
-			path = prefix + "." + field.Name()
+			path = prefix + "." + path
 		}
-
-		if fresh := latestBefore(writes[path], before); fresh != nil {
-			sources = append(sources, fresh)
+		rel, overlaps := relative(w.pending, "."+path)
+		if overlaps == false {
 			continue
 		}
-		nested, isStruct := deref(field.Type()).Underlying().(*types.Struct)
-		if isStruct == false {
-			return nil, false
-		}
-		inner, ok := w.rebuiltFrom(nested, path, writes, before, depth+1)
-		if ok == false {
-			return nil, false
-		}
-		sources = append(sources, inner...)
+		entered := w.enter(field)
+		w.rebuildField(id, field, path, rel, fields, consumed, depth)
+		w.leave(entered)
 	}
-	return sources, true
 }
 
-func latestBefore(writes []fieldWrite, before token.Pos) ast.Expr {
-	var out ast.Expr
-	for _, write := range writes {
-		if write.pos < before {
-			out = write.expr
+func (w *provWalk) rebuildField(id *ast.Ident, field *types.Var, path string, rel string,
+	fields map[string][]fieldWrite, consumed map[string]bool, depth int) {
+
+	use := id.Pos()
+	writes := fields[path]
+	consumed[path] = true
+
+	last := -1
+	for i, write := range writes {
+		if write.pos >= use || dominates(w.f.body, write.stmt, use) == false {
+			continue
+		}
+		if last < 0 || write.pos > writes[last].pos {
+			last = i
 		}
 	}
-	return out
+
+	if last >= 0 {
+		from := writes[last].pos
+		w.walkAt(rel, writes[last].expr, depth+1)
+		for _, write := range writes {
+			if write.pos > from && write.pos < use {
+				w.walkAt(rel, write.expr, depth+1)
+			}
+		}
+		obj := w.m.pass.TypesInfo.Uses[id]
+		for _, b := range w.f.binds[id.Name] {
+			if b.pos > from && b.pos < use && (obj == nil || b.obj == obj) {
+				w.lost++
+				saved := w.pending
+				w.pending = "." + path + rel
+				w.walkBind(b, depth)
+				w.pending = saved
+				w.lost--
+			}
+		}
+		return
+	}
+
+	for _, write := range writes {
+		if write.pos < use {
+			w.walkAt(rel, write.expr, depth+1)
+		}
+	}
+	if nested, isStruct := types.Unalias(field.Type()).Underlying().(*types.Struct); isStruct && writtenUnder(fields, path) {
+		w.rebuildFrom(id, nested, path, fields, consumed, depth)
+		return
+	}
+	w.lost++
+	saved := w.pending
+	w.pending = "." + path + rel
+	w.sources(id, depth)
+	w.pending = saved
+	w.lost--
+}
+
+func writtenUnder(fields map[string][]fieldWrite, path string) bool {
+	for key := range fields {
+		if strings.HasPrefix(key, path+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func relative(pending string, path string) (string, bool) {
+	if pending == "" {
+		return "", true
+	}
+	if rest, ok := under(pending, path); ok {
+		return rest, true
+	}
+	if _, ok := under(path, pending); ok {
+		return "", true
+	}
+	return "", false
 }
 
 func (w *provWalk) callResult(call *ast.CallExpr, index int, depth int) {
@@ -625,21 +1015,10 @@ func (w *provWalk) callResult(call *ast.CallExpr, index int, depth int) {
 		return
 	}
 
-	if id, isIdent := call.Fun.(*ast.Ident); isIdent {
-		switch id.Name {
-		case "make", "new", "copy", "len", "cap":
-			return
-		case "append":
-			from := 0
-			if len(call.Args) > 0 && isEmptyOrNil(call.Args[0]) {
-				from = 1
-			}
-			for i, arg := range call.Args[from:] {
-				if call.Ellipsis.IsValid() && from+i == len(call.Args)-1 {
-					w.walkSpread(arg, depth)
-					continue
-				}
-				w.walk(arg, depth+1)
+	if id, isIdent := ast.Unparen(call.Fun).(*ast.Ident); isIdent {
+		if _, builtin := w.m.pass.TypesInfo.Uses[id].(*types.Builtin); builtin {
+			if id.Name == "append" {
+				w.appended(call, depth)
 			}
 			return
 		}
@@ -647,7 +1026,7 @@ func (w *provWalk) callResult(call *ast.CallExpr, index int, depth int) {
 
 	if isCloneCall(call) && len(call.Args) == 1 {
 		if w.m.elemAliases(w.m.pass.TypesInfo.TypeOf(call.Args[0])) {
-			w.deeper(call.Args[0], depth+1)
+			w.elements(call.Args[0], depth+1)
 		}
 		return
 	}
@@ -658,40 +1037,121 @@ func (w *provWalk) callResult(call *ast.CallExpr, index int, depth int) {
 		return
 	}
 
-	for _, escape := range w.m.Behavior(fn).Escapes {
-		if escape.Result == index {
-			w.add(ProvOwned, fn.Name()+" hands back its receiver's "+escape.Field, call.Pos())
-			return
-		}
+	if index == 0 && w.m.isRequest(fn) {
+		w.add(ProvReceived, "came back from "+fn.Name()+"()", call.Pos())
+		return
 	}
 
 	switch origin := w.m.ResultOrigin(fn, index); origin.Kind {
 	case ResultFresh:
 		return
 	case ResultFromParam:
-		if origin.Param >= 0 && origin.Param < len(call.Args) {
-			w.walk(call.Args[origin.Param], depth+1)
+		if w.derived(call, fn, origin, depth) {
+			return
+		}
+	}
+
+	for _, escape := range w.m.Behavior(fn).Escapes {
+		if escape.Result == index && w.m.ResultAliases(fn, index) {
+			w.add(ProvOwned, fn.Name()+" hands back its receiver's "+escape.Field, call.Pos())
 			return
 		}
 	}
 	w.add(ProvUnknown, callName(call), call.Pos())
 }
 
-func (m *Model) ResultOrigin(fn *types.Func, index int) ResultOrigin {
-	if fn == nil {
-		return ResultOrigin{Param: -1}
+func (w *provWalk) appended(call *ast.CallExpr, depth int) {
+	if len(call.Args) == 0 {
+		return
 	}
-	if fact, ok := m.results[fn]; ok {
-		if index < len(fact.Results) {
-			return fact.Results[index]
+	if isEmptyOrNil(call.Args[0]) == false {
+		w.walk(call.Args[0], depth+1)
+	}
+	head, rest := firstStep(w.pending)
+	element := ""
+	if head == "[]" {
+		element = rest
+	}
+	for i, arg := range call.Args[1:] {
+		if call.Ellipsis.IsValid() && i == len(call.Args)-2 {
+			if w.m.elemAliases(w.m.pass.TypesInfo.TypeOf(arg)) {
+				w.elements(arg, depth+1)
+			}
+			continue
 		}
-		return ResultOrigin{Param: -1}
+		w.walkAt(element, arg, depth+1)
 	}
-	var fact ResultsFact
-	if m.pass.ImportObjectFact(fn, &fact) && index < len(fact.Results) {
-		return fact.Results[index]
+}
+
+func (w *provWalk) derived(call *ast.CallExpr, fn *types.Func, origin ResultOrigin, depth int) bool {
+	var recv ast.Expr
+	if sel, isSel := ast.Unparen(call.Fun).(*ast.SelectorExpr); isSel {
+		if s, isMethod := w.m.pass.TypesInfo.Selections[sel]; isMethod {
+			if s.Kind() != types.MethodVal {
+				return false
+			}
+			recv = sel.X
+		}
 	}
-	return ResultOrigin{Param: -1}
+	if origin.Recv && recv == nil {
+		return false
+	}
+
+	type source struct {
+		arg   ast.Expr
+		steps string
+	}
+	var from []source
+	if len(origin.Params) > 0 {
+		sig, isSig := fn.Type().(*types.Signature)
+		if isSig == false {
+			return false
+		}
+		for _, p := range origin.Params {
+			switch {
+			case sig.Variadic() && p.Index == sig.Params().Len()-1 && p.Index <= len(call.Args):
+				for _, arg := range call.Args[p.Index:] {
+					from = append(from, source{arg: arg, steps: p.Steps})
+				}
+			case p.Index < len(call.Args) && len(call.Args) == sig.Params().Len():
+				from = append(from, source{arg: call.Args[p.Index], steps: p.Steps})
+			default:
+				return false
+			}
+		}
+	}
+
+	w.lost++
+	for _, s := range from {
+		w.walkAt(s.steps, s.arg, depth+1)
+	}
+	if origin.Recv {
+		w.walkAt(origin.RecvSteps, recv, depth+1)
+	}
+	w.lost--
+	if origin.Received {
+		w.add(ProvReceived, "came back from a request inside "+callName(call), call.Pos())
+	}
+	return true
+}
+
+func (m *Model) ResultAliases(fn *types.Func, index int) bool {
+	sig, ok := fn.Type().(*types.Signature)
+	if ok == false || index < 0 || index >= sig.Results().Len() {
+		return true
+	}
+	return m.Shape(sig.Results().At(index).Type()).Aliasing
+}
+
+func (m *Model) isRequest(fn *types.Func) bool {
+	if fn.Pkg() == nil || strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) == false {
+		return false
+	}
+	if strings.HasPrefix(fn.Name(), "Call") == false {
+		return false
+	}
+	_, ok := m.senderParam(fn)
+	return ok
 }
 
 func (m *Model) buildFuncAliases() {
@@ -752,131 +1212,17 @@ func (m *Model) callee(call *ast.CallExpr) (*types.Func, bool) {
 	return fn, ok
 }
 
-func (m *Model) buildResultOrigins(decls []*ast.FuncDecl) {
-	m.results = map[*types.Func]ResultsFact{}
-
-	type entry struct {
-		decl *ast.FuncDecl
-		obj  *types.Func
-		n    int
-	}
-	var entries []entry
-
-	for _, decl := range decls {
-		if decl.Body == nil {
-			continue
-		}
-		obj, _ := m.pass.TypesInfo.Defs[decl.Name].(*types.Func)
-		if obj == nil {
-			continue
-		}
-		sig, ok := obj.Type().(*types.Signature)
-		if ok == false || sig.Results().Len() == 0 {
-			continue
-		}
-		n := sig.Results().Len()
-		results := make([]ResultOrigin, n)
-		for i := range results {
-			results[i] = ResultOrigin{Kind: ResultFresh, Param: -1}
-		}
-		m.results[obj] = ResultsFact{Results: results}
-		entries = append(entries, entry{decl: decl, obj: obj, n: n})
-	}
-
-	for round := 0; round < 8; round++ {
-		changed := false
-		for _, e := range entries {
-			next := m.computeResults(e.decl, e.n)
-			if resultsDiffer(m.results[e.obj].Results, next) {
-				m.results[e.obj] = ResultsFact{Results: next}
-				changed = true
-			}
-		}
-		if changed == false {
-			break
-		}
-	}
-
-	for _, e := range entries {
-		m.pass.ExportObjectFact(e.obj, &ResultsFact{Results: m.results[e.obj].Results})
-	}
-}
-
-func (m *Model) computeResults(decl *ast.FuncDecl, n int) []ResultOrigin {
-	out := make([]ResultOrigin, n)
-	for i := range out {
-		out[i] = ResultOrigin{Kind: ResultFresh, Param: -1}
-	}
-
-	ast.Inspect(decl.Body, func(node ast.Node) bool {
-		if _, isLit := node.(*ast.FuncLit); isLit {
-			return false
-		}
-		ret, isRet := node.(*ast.ReturnStmt)
-		if isRet == false {
-			return true
-		}
-		if len(ret.Results) != n {
-			for i := range out {
-				out[i] = worstResult(out[i], ResultOrigin{Kind: ResultUnknown, Param: -1})
-			}
-			return true
-		}
-		for i, result := range ret.Results {
-			out[i] = worstResult(out[i], m.originOfResult(decl, result))
-		}
-		return true
-	})
-	return out
-}
-
-func (m *Model) originOfResult(decl *ast.FuncDecl, e ast.Expr) ResultOrigin {
-	w := m.walkerFor(decl, false)
-	w.walk(e, 0)
-
-	out := ResultOrigin{Kind: ResultFresh, Param: -1}
-	for _, root := range w.roots {
-		next := ResultOrigin{Kind: ResultUnknown, Param: -1}
-		if root.Param >= 0 {
-			next = ResultOrigin{Kind: ResultFromParam, Param: root.Param}
-		}
-		out = worstResult(out, next)
-	}
-	return out
-}
-
-func worstResult(a ResultOrigin, b ResultOrigin) ResultOrigin {
-	if a.Kind == ResultFromParam && b.Kind == ResultFromParam && a.Param != b.Param {
-		return ResultOrigin{Kind: ResultUnknown, Param: -1}
-	}
-	if b.Kind < a.Kind {
-		return b
-	}
-	return a
-}
-
-func resultsDiffer(a []ResultOrigin, b []ResultOrigin) bool {
-	if len(a) != len(b) {
-		return true
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *Model) buildProvenance(decls []*ast.FuncDecl) {
+	r := &resolver{m: m, decls: decls, active: map[*ast.FuncDecl]bool{}}
+	r.init = m.initOnly(decls, r.calls())
+
 	for _, site := range m.spawnSites {
 		if site.Decl == nil || site.Decl.Body == nil {
 			continue
 		}
 		site.Origins = make([]Origin, len(site.Args))
 		for i, arg := range site.Args {
-			w := m.walkerFor(site.Decl, site.In != nil)
-			w.walk(arg, 0)
-			site.Origins[i] = w.verdict()
+			site.Origins[i] = r.origin(site.Decl, site.In, arg, site.Call.Pos())
 		}
 	}
 
@@ -885,220 +1231,124 @@ func (m *Model) buildProvenance(decls []*ast.FuncDecl) {
 			site.Origin = Origin{Prov: ProvUnknown, Witness: "no enclosing body", Param: -1}
 			continue
 		}
-		w := m.walkerFor(site.Decl, site.In != nil)
-		w.walk(site.Payload, 0)
-		site.Origin = w.verdict()
+		site.Origin = r.origin(site.Decl, site.In, site.Payload, site.Call.Pos())
 	}
-	m.resolveForwarded(decls)
 }
 
-type callSite struct {
-	args []ast.Expr
-	decl *ast.FuncDecl
-	cb   *Callback
+const forwardDepth = 4
+
+type resolver struct {
+	m      *Model
+	decls  []*ast.FuncDecl
+	graph  *callGraph
+	init   map[*ast.FuncDecl]bool
+	active map[*ast.FuncDecl]bool
 }
 
-func (m *Model) resolveForwarded(decls []*ast.FuncDecl) {
-	pending := false
-	for _, site := range m.SendSites {
-		if site.In == nil && site.Origin.Prov == ProvUnknown && site.Origin.Param >= 0 {
-			pending = true
-			break
-		}
+func (r *resolver) calls() *callGraph {
+	if r.graph == nil {
+		r.graph = r.m.buildCallGraph(r.decls)
 	}
-	if pending == false {
-		return
+	return r.graph
+}
+
+func (r *resolver) origin(decl *ast.FuncDecl, cb *Callback, e ast.Expr, at token.Pos) Origin {
+	w := r.m.walkerFor(decl, cb != nil, at, r.init[decl])
+	w.walk(e, 0)
+	roots := w.roots
+	if cb == nil {
+		roots = r.resolve(decl, roots, 0)
 	}
+	return verdict(roots)
+}
 
-	byDecl := map[*ast.FuncDecl]*Callback{}
-	for _, cb := range m.Callbacks {
-		byDecl[cb.Decl] = cb
-	}
-
-	callers := map[*types.Func][]callSite{}
-	for _, decl := range decls {
-		if decl.Body == nil {
-			continue
-		}
-		enclosing, cb := decl, byDecl[decl]
-		ast.Inspect(decl.Body, func(n ast.Node) bool {
-			call, isCall := n.(*ast.CallExpr)
-			if isCall == false {
-				return true
-			}
-			fn, isFunc := calleeOf(m.pass.TypesInfo, call)
-			if isFunc == false || fn.Pkg() != m.pass.Pkg {
-				return true
-			}
-			callers[fn] = append(callers[fn], callSite{args: call.Args, decl: enclosing, cb: cb})
-			return true
-		})
-	}
-
-	for _, site := range m.SendSites {
-		if site.In != nil || site.Origin.Prov != ProvUnknown || site.Origin.Param < 0 {
-			continue
-		}
-		obj, _ := m.pass.TypesInfo.Defs[site.Decl.Name].(*types.Func)
-		if obj == nil || obj.Exported() {
-			continue
-		}
-		calls := callers[obj]
-		if len(calls) == 0 {
-			continue
-		}
-
-		merged := Origin{Prov: ProvTransferred, Param: -1, Witness: "every caller builds it fresh"}
-		resolved := true
-		for _, caller := range calls {
-			if site.Origin.Param >= len(caller.args) || caller.decl == site.Decl {
-				resolved = false
-				break
-			}
-			w := m.walkerFor(caller.decl, caller.cb != nil)
-			w.walk(caller.args[site.Origin.Param], 0)
-			if at := w.verdict(); at.Prov >= merged.Prov {
-				merged = at
+func (r *resolver) resolve(decl *ast.FuncDecl, roots []Origin, depth int) []Origin {
+	out := make([]Origin, 0, len(roots))
+	for _, root := range roots {
+		if root.Prov == ProvUnknown && root.Param >= 0 {
+			if merged, ok := r.param(decl, root, depth); ok {
+				out = append(out, merged)
+				continue
 			}
 		}
-		if resolved == false {
-			continue
-		}
-		merged.Witness = site.Origin.Witness + ", and at its callers: " + merged.Witness
-		merged.Param = -1
-		site.Origin = merged
+		out = append(out, root)
 	}
+	return out
 }
 
-func (m *Model) buildMutatedFields(decls []*ast.FuncDecl) {
-	m.mutated = map[string]bool{}
-	m.mutatedInside = map[string]bool{}
+func (r *resolver) param(decl *ast.FuncDecl, root Origin, depth int) (Origin, bool) {
+	if depth >= forwardDepth || r.active[decl] {
+		return Origin{}, false
+	}
+	obj, _ := r.m.pass.TypesInfo.Defs[decl.Name].(*types.Func)
+	if obj == nil || obj.Exported() {
+		return Origin{}, false
+	}
+	g := r.calls()
+	if g.escaped[obj] || len(g.callers[obj]) == 0 {
+		return Origin{}, false
+	}
+	sig, _ := obj.Type().(*types.Signature)
+	variadic := sig != nil && sig.Variadic() && root.Param == sig.Params().Len()-1
 
-	for _, decl := range decls {
-		if decl.Body == nil {
-			continue
-		}
-		named, ok := receiverType(m.pass.TypesInfo, decl)
-		if ok == false {
-			continue
-		}
-		recv := receiverName(decl)
-		if recv == "" {
-			continue
-		}
-		owner := typePath(named)
+	r.active[decl] = true
+	defer delete(r.active, decl)
 
-		note := func(e ast.Expr, inside bool) {
-			field, isField := receiverSelector(e, recv)
-			if isField == false {
-				return
+	merged := Origin{Prov: ProvTransferred, Param: -1, Witness: "every caller builds it fresh"}
+	for _, caller := range g.callers[obj] {
+		if caller.decl == decl || caller.decl.Body == nil {
+			return Origin{}, false
+		}
+		args := caller.call.Args
+		pending := root.pending
+		addressed := root.addressed
+		switch {
+		case variadic && root.Param <= len(args):
+			if caller.call.Ellipsis.IsValid() == false {
+				pending, addressed = "", false
 			}
-			key := owner + "/" + bareField(field)
-			m.mutated[key] = true
-			if inside {
-				m.mutatedInside[key] = true
-			}
+			args = args[root.Param:]
+		case sig != nil && len(args) == sig.Params().Len() && root.Param < len(args):
+			args = args[root.Param : root.Param+1]
+		default:
+			return Origin{}, false
 		}
 
-		ast.Inspect(decl.Body, func(n ast.Node) bool {
-			switch x := n.(type) {
-			case *ast.AssignStmt:
-				for _, lhs := range x.Lhs {
-					note(inPlaceTarget(lhs))
-				}
-				if len(x.Lhs) == len(x.Rhs) {
-					for i, rhs := range x.Rhs {
-						if _, isSelfAppend := appendIntoField(x.Lhs[i], rhs, recv); isSelfAppend {
-							note(x.Lhs[i], false)
-						}
-					}
-				}
-			case *ast.IncDecStmt:
-				note(inPlaceTarget(x.X))
-			case *ast.CallExpr:
-				id, isIdent := x.Fun.(*ast.Ident)
-				if isIdent == false || len(x.Args) == 0 {
-					return true
-				}
-				switch id.Name {
-				case "delete", "clear", "copy":
-					note(x.Args[0], false)
-				}
-			}
-			return true
-		})
-	}
-}
-
-func (m *Model) FieldMutated(owner string, field string, inside bool) bool {
-	key := owner + "/" + bareField(field)
-	if inside {
-		return m.mutatedInside[key]
-	}
-	return m.mutated[key]
-}
-
-func (m *Model) OwnFieldMutated(cb *Callback, field string) bool {
-	if cb == nil || cb.Behavior == nil {
-		return false
-	}
-	return m.FieldMutated(typePath(cb.Behavior), field, false)
-}
-
-func bareField(name string) string {
-	if i := strings.LastIndex(name, "."); i >= 0 {
-		return name[i+1:]
-	}
-	return name
-}
-
-func inPlaceTarget(lhs ast.Expr) (ast.Expr, bool) {
-	switch x := lhs.(type) {
-	case *ast.IndexExpr:
-		return inPlaceBase(x.X), false
-	case *ast.StarExpr:
-		return inPlaceBase(x.X), true
-	case *ast.SelectorExpr:
-		switch inner := x.X.(type) {
-		case *ast.IndexExpr:
-			return inPlaceBase(inner.X), true
-		case *ast.SelectorExpr:
-			return inner, true
-		case *ast.StarExpr:
-			return inPlaceBase(inner.X), true
+		w := r.m.walkerFor(caller.decl, caller.cb != nil, caller.call.Pos(), r.init[caller.decl])
+		w.pending, w.addressed = pending, addressed
+		for _, arg := range args {
+			w.walk(arg, 0)
+		}
+		roots := w.roots
+		if caller.cb == nil {
+			roots = r.resolve(caller.decl, roots, depth+1)
+		}
+		if at := verdict(roots); rank(at) >= rank(merged) {
+			merged = at
 		}
 	}
-	return nil, false
+	merged.Witness = root.Witness + ", and at its callers: " + merged.Witness
+	merged.Param = -1
+	merged.Via = root.Via
+	merged.pending, merged.addressed = "", false
+	return merged, true
 }
 
-func inPlaceBase(e ast.Expr) ast.Expr {
-	switch x := e.(type) {
-	case *ast.ParenExpr:
-		return inPlaceBase(x.X)
-	case *ast.SelectorExpr:
-		return x
+func (m *Model) elemExposed(t types.Type) bool {
+	if t == nil {
+		return true
 	}
-	return nil
-}
-
-func appendIntoField(lhs ast.Expr, rhs ast.Expr, recv string) ([]ast.Expr, bool) {
-	field, isField := receiverSelector(lhs, recv)
-	if isField == false {
-		return nil, false
+	switch u := types.Unalias(t).Underlying().(type) {
+	case *types.Slice:
+		return m.exposes(u.Elem())
+	case *types.Map:
+		return m.exposes(u.Elem()) || m.exposes(u.Key())
+	case *types.Array:
+		return m.exposes(u.Elem())
+	case *types.Pointer:
+		return m.exposes(u.Elem())
 	}
-	call, isCall := rhs.(*ast.CallExpr)
-	if isCall == false {
-		return nil, false
-	}
-	id, isIdent := call.Fun.(*ast.Ident)
-	if isIdent == false || id.Name != "append" || len(call.Args) == 0 {
-		return nil, false
-	}
-	first, isFirstField := receiverSelector(call.Args[0], recv)
-	if isFirstField == false || first != field {
-		return nil, false
-	}
-	return call.Args[1:], true
+	return true
 }
 
 func (m *Model) elemAliases(t types.Type) bool {

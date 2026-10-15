@@ -64,6 +64,13 @@ link or monitor, and a documented lifecycle. The fallback is to hoist the proces
 handle, PID and logger into locals, reference only those in the recover body, and
 send a message back to the actor.
 
+An application is not a process, and the wording says so. A panic in an application
+callback itself is recovered by the node, Init's into an error, but a goroutine the
+callback starts has no boundary either, and its panic takes down the whole node all
+the same; there is no one process it could have cost instead, and gen.Application has
+no SpawnMeta, so the finding asks only for the recover in the goroutine body. A helper
+reachable only from application callbacks is worded the same way.
+
 A goroutine that also touches actor state is a separate finding (A1004) on the same
 construct: a race free goroutine can still take the node down, so two deliberate
 exceptions on one go statement take two rule ids.`,
@@ -74,6 +81,7 @@ exceptions on one go statement take two rule ids.`,
 
 func run(pass *analysis.Pass) (any, error) {
 	m := ergomodel.From(pass)
+	s := newScoper(pass, m)
 
 	for _, site := range m.GoSites() {
 		if site.Recovered || site.Forwarded {
@@ -82,14 +90,14 @@ func run(pass *analysis.Pass) (any, error) {
 		if inTest(pass, site.Stmt.Pos()) {
 			continue
 		}
-		where, id, ok := scope(m, site.In, site.Enclosing)
+		where, id, c, ok := s.scope(site.In, site.Enclosing)
 		if ok == false {
 			continue
 		}
 		m.Report(pass, site.Stmt.Pos(),
 			ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 1, ID: id},
-			"goroutine started in %s has no recover, so a panic in it takes down the whole node instead of this one process; defer a recover in the goroutine body or move the work into a meta process",
-			where)
+			"goroutine started in %s has no recover, so a panic in it %s; defer a recover in the goroutine body%s",
+			where, c.loses(), c.orMeta())
 	}
 
 	for _, site := range m.ForkSites() {
@@ -99,7 +107,7 @@ func run(pass *analysis.Pass) (any, error) {
 		if inTest(pass, site.Call.Pos()) {
 			continue
 		}
-		where, id, ok := scope(m, site.In, site.Enclosing)
+		where, id, c, ok := s.scope(site.In, site.Enclosing)
 		if ok == false {
 			continue
 		}
@@ -107,15 +115,15 @@ func run(pass *analysis.Pass) (any, error) {
 			m.Report(pass, site.Arg.Pos(),
 				ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
 					ID: id + ":" + site.Via, Witness: "unresolved func value"},
-				"%s hands %s to %s, which runs it on a goroutine of its own, and what it points to does not resolve here, so nothing shows a recover in it; a panic there would take down the whole node instead of this one process. Pass a func literal or a named function that defers a recover",
-				where, site.What, site.Via)
+				"%s hands %s to %s, which runs it on a goroutine of its own, and what it points to does not resolve here, so nothing shows a recover in it; a panic there would %s. Pass a func literal or a named function that defers a recover",
+				where, site.What, site.Via, c.wouldLose())
 			continue
 		}
 		m.Report(pass, site.Arg.Pos(),
 			ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 1,
 				ID: id + ":" + site.Via, Witness: site.What},
-			"%s hands %s to %s, which runs it on a goroutine of its own, and %s defers no recover, so a panic in it takes down the whole node instead of this one process; defer a recover at the top of %s or move the work into a meta process",
-			where, site.What, site.Via, site.What, site.What)
+			"%s hands %s to %s, which runs it on a goroutine of its own, and %s defers no recover, so a panic in it %s; defer a recover at the top of %s%s",
+			where, site.What, site.Via, site.What, c.loses(), site.What, c.orMeta())
 	}
 
 	byDecl := map[*ast.FuncDecl]*ergomodel.Callback{}
@@ -131,17 +139,40 @@ func run(pass *analysis.Pass) (any, error) {
 			if inTest(pass, decl.Pos()) {
 				continue
 			}
-			where, id, ok := scope(m, byDecl[decl], m.EnclosingFunc(decl))
+			where, id, c, ok := s.scope(byDecl[decl], m.EnclosingFunc(decl))
 			if ok == false {
 				continue
 			}
-			crossPackage(pass, m, decl, where, id)
+			crossPackage(pass, m, decl, where, id, c)
 		}
 	}
 	return nil, nil
 }
 
-func crossPackage(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl, where, id string) {
+type cost struct{ application bool }
+
+func (c cost) loses() string {
+	if c.application {
+		return "takes down the whole node"
+	}
+	return "takes down the whole node instead of this one process"
+}
+
+func (c cost) wouldLose() string {
+	if c.application {
+		return "take down the whole node"
+	}
+	return "take down the whole node instead of this one process"
+}
+
+func (c cost) orMeta() string {
+	if c.application {
+		return ""
+	}
+	return " or move the work into a meta process"
+}
+
+func crossPackage(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl, where, id string, c cost) {
 	ast.Inspect(decl.Body, func(n ast.Node) bool {
 		if _, isGo := n.(*ast.GoStmt); isGo {
 			return false
@@ -161,8 +192,8 @@ func crossPackage(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl, w
 		m.Report(pass, call.Pos(),
 			ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 1,
 				ID: id + ":" + ergomodel.FuncID(callee), Witness: b.UnrecoveredIn},
-			"%s calls %s, which %s a goroutine with no recover (%s), so a panic in it takes down the whole node instead of this one process; defer a recover in that goroutine body or move the work into a meta process",
-			where, display(callee), reaches(callee, b.UnrecoveredIn), b.UnrecoveredAt)
+			"%s calls %s, which %s a goroutine with no recover (%s), so a panic in it %s; defer a recover in that goroutine body%s",
+			where, display(callee), reaches(callee, b.UnrecoveredIn), b.UnrecoveredAt, c.loses(), c.orMeta())
 		return true
 	})
 }
@@ -174,14 +205,54 @@ func reaches(callee *types.Func, in string) string {
 	return "reaches, through " + in + ","
 }
 
-func scope(m *ergomodel.Model, in *ergomodel.Callback, enclosing *types.Func) (string, string, bool) {
+type scoper struct {
+	m         *ergomodel.Model
+	processes map[*types.Func]bool
+}
+
+func newScoper(pass *analysis.Pass, m *ergomodel.Model) *scoper {
+	s := &scoper{m: m, processes: map[*types.Func]bool{}}
+	var queue []*types.Func
+	for _, cb := range m.Callbacks {
+		if cb.Application {
+			continue
+		}
+		if fn, ok := pass.TypesInfo.Defs[cb.Decl.Name].(*types.Func); ok {
+			queue = append(queue, fn)
+		}
+	}
+	for len(queue) > 0 {
+		fn := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if s.processes[fn] {
+			continue
+		}
+		s.processes[fn] = true
+		decl := m.DeclOf(fn)
+		if decl == nil || decl.Body == nil {
+			continue
+		}
+		ast.Inspect(decl.Body, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok {
+				if callee, ok := pass.TypesInfo.Uses[id].(*types.Func); ok && m.DeclOf(callee.Origin()) != nil {
+					queue = append(queue, callee.Origin())
+				}
+			}
+			return true
+		})
+	}
+	return s
+}
+
+func (s *scoper) scope(in *ergomodel.Callback, enclosing *types.Func) (string, string, cost, bool) {
 	if in != nil {
-		return in.Name, ergomodel.CallbackID(in), true
+		return in.Name, ergomodel.CallbackID(in), cost{application: in.Application}, true
 	}
-	if m.UnderCallback(enclosing) {
-		return "a path reachable from a callback", ergomodel.FuncID(enclosing), true
+	if s.m.UnderCallback(enclosing) {
+		return "a path reachable from a callback", ergomodel.FuncID(enclosing),
+			cost{application: s.processes[enclosing] == false}, true
 	}
-	return "", "", false
+	return "", "", cost{}, false
 }
 
 func inTest(pass *analysis.Pass, pos token.Pos) bool {

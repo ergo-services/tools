@@ -6,6 +6,7 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"sort"
 	"strings"
 )
 
@@ -351,8 +352,318 @@ func (m *Model) foldLiteral(spec *SupervisorSpec, e ast.Expr, prefix string) {
 			m.foldLiteral(spec, kv.Value, path)
 			continue
 		}
+		if isStructValue(m.pass.TypesInfo.TypeOf(kv.Value)) && m.foldValue(spec, kv.Value, path) {
+			continue
+		}
 		m.setField(spec, path, kv.Value, kv.Pos())
 	}
+}
+
+func isStructValue(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	_, ok := t.Underlying().(*types.Struct)
+	return ok
+}
+
+func (m *Model) foldValue(spec *SupervisorSpec, e ast.Expr, prefix string) bool {
+	if _, isLit := unwrap(e).(*ast.CompositeLit); isLit {
+		m.foldLiteral(spec, e, prefix)
+		return true
+	}
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if ok == false {
+		return false
+	}
+	v, ok := m.pass.TypesInfo.Uses[id].(*types.Var)
+	if ok == false || v.Pkg() != m.pass.Pkg {
+		return false
+	}
+	if v.Parent() == m.pass.Pkg.Scope() {
+		if v.Exported() {
+			return false
+		}
+		roots := make([]ast.Node, 0, len(m.pass.Files))
+		for _, file := range m.pass.Files {
+			roots = append(roots, file)
+		}
+		writes, ok := m.writesTo(v, roots)
+		if ok == false || len(writes) != 1 || writes[0].define == false {
+			return false
+		}
+		return m.applyWrites(spec, writes, prefix)
+	}
+	decl := m.enclosingDecl(id.Pos())
+	if decl == nil {
+		return false
+	}
+	writes, ok := m.writesTo(v, []ast.Node{decl})
+	if ok == false {
+		return false
+	}
+	return m.foldLocal(spec, decl, id, writes, prefix)
+}
+
+type varWrite struct {
+	stmt   ast.Node
+	define bool
+	path   string
+	value  ast.Expr
+	pos    token.Pos
+}
+
+func (m *Model) writesTo(v *types.Var, roots []ast.Node) ([]varWrite, bool) {
+	info := m.pass.TypesInfo
+	var out []varWrite
+	ok := true
+
+	rooted := func(e ast.Expr) (string, bool) {
+		root := ast.Unparen(e)
+		for {
+			switch x := root.(type) {
+			case *ast.SelectorExpr:
+				root = ast.Unparen(x.X)
+				continue
+			case *ast.IndexExpr:
+				root = ast.Unparen(x.X)
+				continue
+			case *ast.StarExpr:
+				root = ast.Unparen(x.X)
+				continue
+			case *ast.Ident:
+				if info.Uses[x] != v && info.Defs[x] != v {
+					return "", false
+				}
+				if x == ast.Unparen(e) {
+					return "", true
+				}
+				path, isPath := selectorPath(ast.Unparen(e), x.Name)
+				if isPath == false {
+					ok = false
+				}
+
+				if strings.Contains(path, "[") {
+					return "", false
+				}
+				return path, true
+			}
+			return "", false
+		}
+	}
+
+	for _, root := range roots {
+		ast.Inspect(root, func(n ast.Node) bool {
+			if ok == false {
+				return false
+			}
+			switch x := n.(type) {
+			case *ast.ValueSpec:
+				for i, name := range x.Names {
+					if info.Defs[name] != v {
+						continue
+					}
+					w := varWrite{stmt: x, define: true, pos: x.Pos()}
+					switch {
+					case len(x.Values) == len(x.Names):
+						w.value = x.Values[i]
+					case len(x.Values) != 0:
+						ok = false
+					}
+					out = append(out, w)
+				}
+			case *ast.AssignStmt:
+				for i, lhs := range x.Lhs {
+					path, hit := rooted(lhs)
+					if hit == false {
+						continue
+					}
+					if len(x.Lhs) != len(x.Rhs) || (x.Tok != token.ASSIGN && x.Tok != token.DEFINE) {
+						ok = false
+						return false
+					}
+					id, _ := lhs.(*ast.Ident)
+					out = append(out, varWrite{
+						stmt: x, define: id != nil && info.Defs[id] == v,
+						path: path, value: x.Rhs[i], pos: x.Pos(),
+					})
+				}
+			case *ast.IncDecStmt:
+				if _, hit := rooted(x.X); hit {
+					ok = false
+				}
+			case *ast.UnaryExpr:
+				if _, hit := rooted(x.X); hit && x.Op == token.AND {
+					ok = false
+				}
+			case *ast.RangeStmt:
+				for _, e := range []ast.Expr{x.Key, x.Value} {
+					if e == nil {
+						continue
+					}
+					if _, hit := rooted(e); hit {
+						ok = false
+					}
+				}
+			case *ast.SelectorExpr:
+				if sel := info.Selections[x]; sel != nil && sel.Kind() == types.MethodVal {
+					if _, hit := rooted(x.X); hit && pointerMethod(sel.Obj()) {
+						ok = false
+					}
+				}
+			}
+			return true
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].pos < out[j].pos })
+	return out, ok
+}
+
+func pointerMethod(obj types.Object) bool {
+	fn, ok := obj.(*types.Func)
+	if ok == false {
+		return false
+	}
+	sig, ok := fn.Type().(*types.Signature)
+	if ok == false || sig.Recv() == nil {
+		return false
+	}
+	_, isPtr := sig.Recv().Type().(*types.Pointer)
+	return isPtr
+}
+
+func (m *Model) foldLocal(spec *SupervisorSpec, decl *ast.FuncDecl, id *ast.Ident, writes []varWrite, prefix string) bool {
+	if len(writes) == 0 || writes[0].define == false {
+		return false
+	}
+	path := pathTo(decl.Body, id)
+	if path == nil {
+		return false
+	}
+	def := writes[0].stmt
+	onPath := map[ast.Node]bool{}
+	for _, n := range path {
+		onPath[n] = true
+		switch n.(type) {
+		case *ast.FuncLit:
+			if encloses(n, def) == false && len(writes) > 1 {
+				return false
+			}
+		case *ast.ForStmt, *ast.RangeStmt:
+			if encloses(n, def) {
+				continue
+			}
+			for _, w := range writes {
+				if encloses(n, w.stmt) {
+					return false
+				}
+			}
+		}
+	}
+
+	before := writes[:1]
+	for _, w := range writes[1:] {
+		if w.pos >= id.Pos() || encloses(w.stmt, id) {
+			continue
+		}
+		switch parent := parentOf(decl.Body, w.stmt); parent.(type) {
+		case *ast.BlockStmt, *ast.CaseClause, *ast.CommClause:
+			if onPath[parent] == false {
+				return false
+			}
+		default:
+			return false
+		}
+		before = append(before, w)
+	}
+	return m.applyWrites(spec, before, prefix)
+}
+
+func (m *Model) applyWrites(spec *SupervisorSpec, writes []varWrite, prefix string) bool {
+	join := func(path string) string {
+		switch {
+		case prefix == "":
+			return path
+		case path == "":
+			return prefix
+		}
+		return prefix + "." + path
+	}
+	for _, w := range writes {
+		target := join(w.path)
+		clearUnder(spec.fields, target)
+		if w.value == nil {
+			continue
+		}
+		if w.path != "" && isStructValue(m.pass.TypesInfo.TypeOf(w.value)) == false {
+			m.setField(spec, target, w.value, w.pos)
+			continue
+		}
+		if m.foldValue(spec, w.value, target) == false {
+			if w.path == "" {
+				return false
+			}
+			m.setField(spec, target, w.value, w.pos)
+		}
+	}
+	return true
+}
+
+func clearUnder(fields map[string]FieldValue, path string) {
+	for key := range fields {
+		if path == "" || key == path || strings.HasPrefix(key, path+".") {
+			delete(fields, key)
+		}
+	}
+}
+
+func (m *Model) enclosingDecl(pos token.Pos) *ast.FuncDecl {
+	for _, file := range m.pass.Files {
+		if pos < file.Pos() || pos >= file.End() {
+			continue
+		}
+		for _, d := range file.Decls {
+			if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil && fd.Pos() <= pos && pos < fd.End() {
+				return fd
+			}
+		}
+	}
+	return nil
+}
+
+func encloses(outer, inner ast.Node) bool {
+	return outer.Pos() <= inner.Pos() && inner.End() <= outer.End()
+}
+
+func pathTo(root, target ast.Node) []ast.Node {
+	var stack, found []ast.Node
+	ast.Inspect(root, func(n ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		if encloses(n, target) == false {
+			return false
+		}
+		stack = append(stack, n)
+		if n == target {
+			found = append([]ast.Node(nil), stack...)
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func parentOf(root, target ast.Node) ast.Node {
+	path := pathTo(root, target)
+	if len(path) < 2 {
+		return nil
+	}
+	return path[len(path)-2]
 }
 
 func (m *Model) foldChildren(spec *SupervisorSpec, e ast.Expr) {

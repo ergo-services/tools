@@ -32,17 +32,47 @@ degraded mode, so a node either refuses to start or refuses to talk to a peer:
   - Registration performed outside an application Load, an ApplicationSpec.Network
     block or an init runs after the point where a peer may already have connected,
     so the two nodes disagree about the type table.
-  - The package level edf entry points write into a table that belongs to no node.
-    Use Network().RegisterType, RegisterError and RegisterAtom, so the registration
-    is owned by the node that has to talk with it.
   - An application group member with Options.InitTimeout above 15 seconds. The
     framework does not clamp it: it refuses to start the whole application.
 
+Placement is judged where the registration runs. A process callback (an actor's
+Init, a handler, a meta callback, an application's Init or Start) is judged in place,
+and so is main for a registration through a node, which it can only have after
+StartNode; a package level registration in main may come before StartNode and is not
+judged there. Any other function or method that registers, directly or through another
+one, is a helper: it is not reported itself, it carries a fact, and each call to it is
+judged by the function it is called from, in this package or in another. So an
+exported RegisterTypes(node) called from Load is quiet, and the same helper called
+from an actor's Init is reported at that call. A helper that is only ever passed
+around as a value and never called is not judged at all, and nothing in the framework
+is a helper: StartNode filling the edf table is not a registration its caller placed.
+
+One finding is a hint rather than a failure, at tier 3: the package level edf entry
+points (RegisterTypeOf, RegisterTypesOf, RegisterError, RegisterAtom). Called from
+init they work, and nothing fails at startup; on a node that speaks only ENP,
+Network().RegisterType is the same call into the same table. But they are deprecated,
+the process prints one deprecation line on stderr for each of them on first use, and
+they register with EDF alone, so on a node that runs another wire protocol beside ENP
+only EDF learns the type. The replacement is ApplicationSpec.Network, or
+Network().RegisterType in an application Load. A pointer or a refused type handed to
+them is still a tier 2 startup failure, and so is registering a type through them
+where a peer may already have connected.
+
 Source: edf.md`,
-	URL:      "https://docs.ergo.services/tools/argus#A2009",
-	Requires: []*analysis.Analyzer{ergomodel.Analyzer},
-	Run:      run,
+	URL:       "https://docs.ergo.services/tools/argus#A2009",
+	Requires:  []*analysis.Analyzer{ergomodel.Analyzer},
+	FactTypes: []analysis.Fact{(*RegistersFact)(nil)},
+	Run:       run,
 }
+
+type RegistersFact struct {
+	Call string
+	Node bool
+}
+
+func (*RegistersFact) AFact() {}
+
+func (f *RegistersFact) String() string { return "registers through " + f.Call }
 
 func run(pass *analysis.Pass) (any, error) {
 	m := ergomodel.From(pass)
@@ -74,74 +104,223 @@ func checkInitTimeout(pass *analysis.Pass, m *ergomodel.Model) {
 	}
 }
 
+type placement int
+
+const (
+	placedEarly placement = iota
+	placedLate
+	placedMain
+	placedHelper
+)
+
+func (p placement) late(node bool) bool {
+	return p == placedLate || (p == placedMain && node)
+}
+
 func checkCalls(pass *analysis.Pass, m *ergomodel.Model) {
+	callbacks := map[*ast.FuncDecl]bool{}
+	for _, cb := range m.Callbacks {
+		callbacks[cb.Decl] = true
+	}
+	var decls []*ast.FuncDecl
 	for _, file := range pass.Files {
 		for _, decl := range file.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if ok == false || fn.Body == nil {
-				continue
+			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
+				decls = append(decls, fn)
 			}
-			placement := placementOK(m, fn)
-
-			ast.Inspect(fn.Body, func(n ast.Node) bool {
-				call, ok := n.(*ast.CallExpr)
-				if ok == false {
-					return true
-				}
-				sel, ok := call.Fun.(*ast.SelectorExpr)
-				if ok == false {
-					return true
-				}
-				callee, ok := pass.TypesInfo.Uses[sel.Sel].(*types.Func)
-				if ok == false || callee.Pkg() == nil {
-					return true
-				}
-				pkg := callee.Pkg().Path()
-				if strings.HasPrefix(pkg, "ergo.services/ergo/") == false {
-					return true
-				}
-
-				switch callee.Name() {
-				case "RegisterType":
-					reportPointerArgs(pass, m, call, 0)
-					reportRefusedArgs(pass, m, call, 0)
-					if placement == false {
-						m.Report(pass, call.Pos(),
-							callFinding(m, fn, "RegisterType/placement"),
-							"RegisterType in %s runs after a peer may already have connected; register in an application Load, in ApplicationSpec.Network or in init",
-							describe(fn))
-					}
-				case "RegisterTypes":
-					reportSliceArgs(pass, m, call)
-					if placement == false {
-						m.Report(pass, call.Pos(),
-							callFinding(m, fn, "RegisterTypes/placement"),
-							"RegisterTypes in %s runs after a peer may already have connected; register in an application Load, in ApplicationSpec.Network or in init",
-							describe(fn))
-					}
-				case "RegisterTypeOf":
-					if pkg == "ergo.services/ergo/net/edf" {
-						reportPointerArgs(pass, m, call, 0)
-						reportRefusedArgs(pass, m, call, 0)
-						m.Report(pass, call.Pos(),
-							callFinding(m, fn, "RegisterTypeOf"),
-							"edf.RegisterTypeOf registers into the package level table; use Network().RegisterType so the registration belongs to the node")
-					}
-				case "RegisterTypesOf", "RegisterError", "RegisterAtom":
-					if pkg == "ergo.services/ergo/net/edf" {
-						if callee.Name() == "RegisterTypesOf" {
-							reportSliceArgs(pass, m, call)
-						}
-						m.Report(pass, call.Pos(),
-							callFinding(m, fn, "edf/"+callee.Name()),
-							"edf.%s registers into the package level table; use Network().%s so the registration belongs to the node",
-							callee.Name(), strings.TrimSuffix(callee.Name(), "Of"))
-					}
-				}
-				return true
-			})
 		}
 	}
+
+	registers := map[*types.Func]RegistersFact{}
+	path := pass.Pkg.Path()
+	framework := path == "ergo.services/ergo" || strings.HasPrefix(path, "ergo.services/ergo/")
+	for changed := framework == false; changed; {
+		changed = false
+		for _, fn := range decls {
+			obj, ok := pass.TypesInfo.Defs[fn.Name].(*types.Func)
+			if ok == false || placementOf(pass, callbacks, fn) != placedHelper {
+				continue
+			}
+			fact, ok := registrationIn(pass, registers, fn)
+			if ok && fact != registers[obj] {
+				registers[obj] = fact
+				changed = true
+			}
+		}
+	}
+	for obj, fact := range registers {
+		pass.ExportObjectFact(obj, &RegistersFact{Call: fact.Call, Node: fact.Node})
+	}
+
+	for _, fn := range decls {
+		placed := placementOf(pass, callbacks, fn)
+
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if ok == false {
+				return true
+			}
+			if helper, fact, ok := registeringHelper(pass, registers, call); ok {
+				if placed.late(fact.Node) {
+					m.Report(pass, call.Pos(),
+						callFinding(m, fn, "helper/"+helper.Name()+"/placement"),
+						"%s, called from %s, registers types through %s after a peer may already have connected; call it from an application Load, list the types in ApplicationSpec.Network, or register in init",
+						helper.Name(), describe(fn), fact.Call)
+				}
+				return true
+			}
+			callee, pkg, ok := ergoCallee(pass, call)
+			if ok == false {
+				return true
+			}
+			late := placed.late(pkg != edfPath)
+
+			switch callee.Name() {
+			case "RegisterType":
+				reportPointerArgs(pass, m, call, 0)
+				reportRefusedArgs(pass, m, call, 0)
+				if late {
+					m.Report(pass, call.Pos(),
+						callFinding(m, fn, "RegisterType/placement"),
+						"RegisterType in %s runs after a peer may already have connected; register in an application Load, in ApplicationSpec.Network or in init",
+						describe(fn))
+				}
+			case "RegisterTypes":
+				reportSliceArgs(pass, m, call)
+				if late {
+					m.Report(pass, call.Pos(),
+						callFinding(m, fn, "RegisterTypes/placement"),
+						"RegisterTypes in %s runs after a peer may already have connected; register in an application Load, in ApplicationSpec.Network or in init",
+						describe(fn))
+				}
+			case "RegisterTypeOf", "RegisterTypesOf", "RegisterError", "RegisterAtom":
+				if pkg != edfPath {
+					break
+				}
+				switch callee.Name() {
+				case "RegisterTypeOf":
+					reportPointerArgs(pass, m, call, 0)
+					reportRefusedArgs(pass, m, call, 0)
+				case "RegisterTypesOf":
+					reportSliceArgs(pass, m, call)
+				}
+				legacy := legacyEntries[callee.Name()]
+				if late && legacy.types {
+					m.Report(pass, call.Pos(),
+						callFinding(m, fn, "edf/"+callee.Name()+"/placement"),
+						"edf.%s in %s runs after a peer may already have connected; register in an application Load, in ApplicationSpec.Network or in init",
+						callee.Name(), describe(fn))
+				}
+				deprecated := callFinding(m, fn, "edf/"+callee.Name())
+				if callee.Name() == "RegisterTypeOf" {
+					deprecated = callFinding(m, fn, "RegisterTypeOf")
+				}
+				deprecated.Tier = 3
+				m.Report(pass, call.Pos(), deprecated,
+					"edf.%s is deprecated and prints a deprecation notice on first use; it registers with EDF alone, so on a node that runs another wire protocol beside ENP only EDF knows the %s; list it in ApplicationSpec.Network.%s, or call Network().%s in an application Load",
+					callee.Name(), legacy.noun, legacy.field, legacy.replacement)
+			}
+			return true
+		})
+	}
+}
+
+const edfPath = "ergo.services/ergo/net/edf"
+
+var legacyEntries = map[string]struct {
+	noun, field, replacement string
+	types                    bool
+}{
+	"RegisterTypeOf":  {noun: "type", field: "RegisterTypes", replacement: "RegisterType", types: true},
+	"RegisterTypesOf": {noun: "types", field: "RegisterTypes", replacement: "RegisterTypes", types: true},
+	"RegisterError":   {noun: "error", field: "RegisterErrors", replacement: "RegisterError"},
+	"RegisterAtom":    {noun: "atom", field: "RegisterAtoms", replacement: "RegisterAtom"},
+}
+
+func ergoCallee(pass *analysis.Pass, call *ast.CallExpr) (*types.Func, string, bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if ok == false {
+		return nil, "", false
+	}
+	callee, ok := pass.TypesInfo.Uses[sel.Sel].(*types.Func)
+	if ok == false || callee.Pkg() == nil {
+		return nil, "", false
+	}
+	pkg := callee.Pkg().Path()
+	if strings.HasPrefix(pkg, "ergo.services/ergo/") == false {
+		return nil, "", false
+	}
+	return callee, pkg, true
+}
+
+func registersTypes(pass *analysis.Pass, call *ast.CallExpr) (RegistersFact, bool) {
+	callee, pkg, ok := ergoCallee(pass, call)
+	if ok == false {
+		return RegistersFact{}, false
+	}
+	switch callee.Name() {
+	case "RegisterType", "RegisterTypes":
+		if pkg == edfPath {
+			return RegistersFact{Call: "edf." + callee.Name()}, true
+		}
+		return RegistersFact{Call: "Network()." + callee.Name(), Node: true}, true
+	case "RegisterTypeOf", "RegisterTypesOf":
+		if pkg == edfPath {
+			return RegistersFact{Call: "edf." + callee.Name()}, true
+		}
+	}
+	return RegistersFact{}, false
+}
+
+func registeringHelper(pass *analysis.Pass, local map[*types.Func]RegistersFact, call *ast.CallExpr) (*types.Func, RegistersFact, bool) {
+	var id *ast.Ident
+	switch fun := ast.Unparen(call.Fun).(type) {
+	case *ast.Ident:
+		id = fun
+	case *ast.SelectorExpr:
+		id = fun.Sel
+	default:
+		return nil, RegistersFact{}, false
+	}
+	fn, ok := pass.TypesInfo.Uses[id].(*types.Func)
+	if ok == false {
+		return nil, RegistersFact{}, false
+	}
+	fn = fn.Origin()
+	if fact, ok := local[fn]; ok {
+		return fn, fact, true
+	}
+	if fn.Pkg() == nil || fn.Pkg() == pass.Pkg {
+		return nil, RegistersFact{}, false
+	}
+	var fact RegistersFact
+	if pass.ImportObjectFact(fn, &fact) {
+		return fn, fact, true
+	}
+	return nil, RegistersFact{}, false
+}
+
+func registrationIn(pass *analysis.Pass, local map[*types.Func]RegistersFact, fn *ast.FuncDecl) (RegistersFact, bool) {
+	var found RegistersFact
+	ok := false
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		if found.Node {
+			return false
+		}
+		call, isCall := n.(*ast.CallExpr)
+		if isCall == false {
+			return true
+		}
+		fact, registers := registersTypes(pass, call)
+		if registers == false {
+			_, fact, registers = registeringHelper(pass, local, call)
+		}
+		if registers && (ok == false || fact.Node) {
+			found, ok = fact, true
+		}
+		return true
+	})
+	return found, ok
 }
 
 func reportPointerArgs(pass *analysis.Pass, m *ergomodel.Model, call *ast.CallExpr, from int) {
@@ -263,18 +442,20 @@ func reportSliceArgs(pass *analysis.Pass, m *ergomodel.Model, call *ast.CallExpr
 	}
 }
 
-func placementOK(m *ergomodel.Model, fn *ast.FuncDecl) bool {
+func placementOf(pass *analysis.Pass, callbacks map[*ast.FuncDecl]bool, fn *ast.FuncDecl) placement {
 	if fn.Recv == nil && fn.Name.Name == "init" {
-		return true
+		return placedEarly
 	}
 	if fn.Name.Name == "Load" {
-		return true
+		return placedEarly
 	}
-
-	if fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "register") {
-		return true
+	if callbacks[fn] {
+		return placedLate
 	}
-	return false
+	if fn.Recv == nil && fn.Name.Name == "main" && pass.Pkg.Name() == "main" {
+		return placedMain
+	}
+	return placedHelper
 }
 
 func checkMarshalerPairs(pass *analysis.Pass, m *ergomodel.Model) {

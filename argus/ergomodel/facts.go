@@ -26,7 +26,10 @@ func (*SenderFact) AFact() {}
 type BlocksFact struct {
 	Why     string
 	Bounded bool
-	Timeout time.Duration
+	Request bool
+
+	Timeout        time.Duration
+	TimeoutDefault bool
 }
 
 func (*BlocksFact) AFact() {}
@@ -72,10 +75,10 @@ type FactoryFact struct{ Behavior string }
 func (*FactoryFact) AFact() {}
 
 type InitBudgetFact struct {
-	Blocks       bool
-	Why          string
-	InnerTimeout int
-	Chain        string
+	Blocks bool
+	Why    string
+	Inner  Budget
+	Chain  string
 }
 
 func (*InitBudgetFact) AFact() {}

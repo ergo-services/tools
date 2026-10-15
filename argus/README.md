@@ -98,16 +98,16 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 
 | Rule | What it reports | Shape |
 | --- | --- | --- |
-| **A1001** | A payload sharing mutable memory with its sender. Local delivery does not copy, so the receiver gets a reference to memory the sender still owns. Narrowed by guardedness, and tiered by provenance: memory built here and abandoned is a transfer of ownership and is not reported at all. | `items := a.items; p.Send(pid, Msg{Items: items})` |
-| **A1002** | An unbounded wait in a callback. `time.Sleep`, a naked `Lock`/`RLock`/`WaitGroup.Wait`, a channel operation outside a `select` with an escape hatch. Transitive through helpers. A framework request is bounded and is not reported. | `func (a *A) HandleMessage(...) { <-ch }` |
+| **A1001** | A payload sharing mutable memory with its sender. Local delivery does not copy, so the receiver gets a reference to memory the sender still owns. Narrowed by guardedness, and tiered by provenance: memory built here and abandoned is a transfer of ownership and is not reported at all. A send to the actor's own PID, name or alias stays in one mailbox and is not reported. | `items := a.items; p.Send(pid, Msg{Items: items})` |
+| **A1002** | An unbounded wait in a callback. `time.Sleep`, a naked `Lock`/`RLock`/`WaitGroup.Wait`, a channel operation not bounded by a `select` arm that receives from a `time.Time` channel or `ctx.Done()`. Transitive through helpers of the analysed module; a channel operation inside another module does not travel. A send into a buffered channel the function just made, within its capacity, and the body of a closure that is only stored, are not waits of the callback. A framework request is bounded and is not reported. Application callbacks have no mailbox and are not checked. | `func (a *A) HandleMessage(...) { <-ch }` |
 | **A1003** | A request addressed to the caller's own registered name, `ProcessID` or alias. It lands in the caller's own mailbox while the caller waits for the reply, so it burns the full request timeout and returns `ErrTimeout`. | `a.Call(a.Name(), req)` |
 | **A1004** | A goroutine started in a callback that touches actor state. Actor fields are unsynchronized by design, and the process handle is actor-goroutine only. | `go func(){ a.n++ }()` |
 | **A1005** | A meta field mutated from both of a meta's two goroutines. Reported on a mutating access on each side, including a method call through a reference, which is the form no assignment-based model would see. | `Start(){ w.Write(b) }` + `HandleMessage(){ w.Flush() }` |
-| **A1006** | A send handing over a field of the sending actor's own state. Same hazard as A1001, different fix: the sender keeps mutating it, so copying at the send site papers over the sharing. Tier 1 when the actor writes into that field, tier 2 when it only ever replaces it whole. | `a.Send(pid, Msg{Cache: a.cache})` |
-| **A1007** | A method returning memory derived from its receiver, handed to a send or a spawn. A reslice of an internal buffer read by another actor without the owner's lock. | `a.Send(pid, buf.Bytes())` |
+| **A1006** | A send handing over a field of the sending actor's own state. Same hazard as A1001, different fix: the sender keeps mutating it, so copying at the send site papers over the sharing. Tier 1 when the actor writes into the memory the field holds, tier 2 when it only ever replaces it whole. A send to the actor's own address is not reported. | `a.Send(pid, Msg{Cache: a.cache})` |
+| **A1007** | A method returning memory derived from its receiver, handed to a send or a spawn. A reslice of an internal buffer read by another actor without the owner's lock. A result whose type cannot alias, such as a string, a number or a struct of values, is a copy and is not reported. | `a.Send(pid, buf.Bytes())` |
 | **A1008** | `HandleCall` returning an error in the termination reason slot. It kills the process and sends no reply, so any peer with an unrecognized request can terminate the callee. | `return nil, gen.ErrUnsupported` |
-| **A1010** | A goroutine with no recover boundary reachable from a callback: a `go` statement, a function argument handed to something that runs it on a goroutine of its own (`time.AfterFunc`, `WaitGroup.Go`, `errgroup.Group.Go`, a helper doing `go f()`), and a call into another package of the project that starts one. A panic there takes the node down instead of one process, and supervision never gets a say. A func value that does not resolve to a body is tier 2. | `go doWork()` |
-| **A1011** | A blocking request in `Init` against the init budget. Both default to five seconds, so the spawner kills the process and returns `ErrTimeout` while `Init` keeps running. The verdict travels on the factory object. | `Init(){ a.Call(x, r) }` |
+| **A1010** | A goroutine with no recover boundary reachable from a callback: a `go` statement, a function argument handed to something that runs it on a goroutine of its own (`time.AfterFunc`, `WaitGroup.Go`, `errgroup.Group.Go`, a helper doing `go f()`), and a call into another package of the project that starts one. A panic there takes the node down instead of one process, and supervision never gets a say. From an application callback the node goes down the same way, and the fix is a recover in the goroutine body, since an application has no meta process to move the work into. A func value that does not resolve to a body is tier 2. | `go doWork()` |
+| **A1011** | A blocking request in `Init` against the init budget. Both default to five seconds, so the spawner kills the process and returns `ErrTimeout` while `Init` keeps running. Only framework requests count, and a default request counts as five seconds even next to a shorter one. The spawn's `InitTimeout` resolves through a literal or a local options variable; a budget that does not resolve is not reported. The verdict travels on the factory object. | `Init(){ a.Call(x, r) }` |
 | **A1012** | `Node().Send` or `Node().Call` from inside a callback. The node routes on its own behalf, so the actor never enters `WaitResponse` and reports itself as Running for the whole wait. | `a.Node().Call(to, req)` |
 | **A1013** | A cycle among the behavior's own methods, reachable from a callback. Recursion in a callback grows the goroutine stack, and a stack overflow is a fatal runtime error: `recover` does not see it, `Terminate` does not run, and the node goes down with every process on it. A self send does not make a stuck loop finish, it returns the fault to where supervision can act. | `func (a *A) step() error { return a.decide() }` |
 
@@ -116,34 +116,34 @@ across a node boundary or a lifecycle edge. Tier 3 is hygiene and is off by defa
 | Rule | What it reports | Shape |
 | --- | --- | --- |
 | **A2001** | A state gated call where the state forbids it: `Terminate` runs with the state already Terminated, a meta `Init` runs before Start. Also a request to the caller's own PID, which the runtime refuses before routing. | `Terminate(){ a.Call(...) }` |
-| **A2001a** | A discarded result hiding a certain failure: an error from a gated call in `Terminate`, or the `CancelFunc` of a periodic timer that then cannot be stopped. | `_, _ = a.SendEvery(pid, m, d)` |
-| **A2002** | A `HandleCall` that can never reply: every path returns `(nil, nil)`, `ref` is never used, and no method of the behavior replies. | `HandleCall(...) { return nil, nil }` |
+| **A2001a** | A discarded result hiding a certain failure: an error from a gated call in `Terminate` that A2001 does not already report, or the `CancelFunc` of a periodic timer that can be armed more than once per process start, or whose tick is armed again elsewhere. A single ticker armed in `Init` stops with the process and is not reported. | `_, _ = a.SendEvery(pid, m, d)` |
+| **A2002** | A `HandleCall` that reads its request and can never reply: every path returns `(nil, nil)`, `ref` is never used, and no method of the behavior replies. A stub that never reads the request behaves like the framework fallback and is not reported. | `switch request.(type) { ... }; return nil, nil` |
 | **A2003** | Two replies for one request. An explicit `SendResponse` plus a non-nil result makes the runtime send a second response, which fills the caller's response channel and then costs a legitimate reply. | `a.SendResponse(f, r, x); return y, nil` |
 | **A2004** | A registered type whose shape registration refuses: an unexported field, `**T`, a chan or func, an interface other than `any` or `error`, a cycle. | `type M struct{ conn net.Conn }` |
 | **A2005** | A supervisor spec init rejects: empty `Children`, empty `Name`, nil `Factory`, per-child `Intensity` under All/RestForOne, `Period` without `Intensity`, duplicate names. | `spec.Children = nil` |
-| **A2006** | Timer misuse: a non-positive period, which never arms the ticker, and a raw `time.NewTicker`/`Tick`/`After` scheduling work off the mailbox. | `a.SendEvery(pid, m, 0)` |
+| **A2006** | Timer misuse: a non-positive period, which never arms the ticker, and a raw `time.NewTicker`/`Tick`/`After` scheduling work off the mailbox. The method `Time.After` compares two instants and is not a timer. | `a.SendEvery(pid, m, 0)` |
 | **A2007** | An event that can never be published: the registration token was discarded, the publish passes a zero `Ref`, or one name is registered twice. Subscribers link successfully and receive nothing. | `a.RegisterEvent("x", opts)` as a statement |
 | **A2008** | A web request never completed with `Done`, so the HTTP goroutine stays parked and the client gets a 504; or the raw request handled on an `act.WebWorker`, where the run loop already consumed it. | `case meta.MessageWebRequest:` without `Done` |
-| **A2009** | A registration that fails at node start: a pointer, a concrete error type, a bare builtin or a framework value type, a half implemented marshaler pair, a value receiver `UnmarshalEDF`, a registration placed after a peer may have connected, a deprecated package level `edf` entry point, an application member `InitTimeout` above the ceiling. | `Network().RegisterType(&M{})` |
-| **A2011** | A spawn argument sharing unsynchronized memory with the parent, or a func argument that pins the child to this node. | `a.Spawn(f, opts, repo)` |
-| **A2012** | A transient failure logged at Error and then returned as a termination reason, which restarts the process and regenerates the same condition. | `a.Log().Error(...); return err` |
+| **A2009** | A registration that fails at node start: a pointer, a concrete error type, a bare builtin or a framework value type, a half implemented marshaler pair, a value receiver `UnmarshalEDF`, a registration placed after a peer may have connected, an application member `InitTimeout` above the ceiling. A helper that registers is judged where it is called. A deprecated package level `edf` entry point is a tier 3 note: it works, but on a node running another wire protocol beside ENP only EDF learns the type. | `Network().RegisterType(&M{})` |
+| **A2011** | A spawn argument sharing unsynchronized memory with the parent, or a func argument that pins the child to this node. The message names the field that is actually shared, and tiers it like A1001. | `a.Spawn(f, opts, repo)` |
+| **A2012** | A transient failure logged at Error and then returned as a termination reason, in the callback or in a helper whose result it returns. The process ends, a Permanent or Transient child is restarted and regenerates the same condition. A `SendEvent` failure is not transient. | `a.Log().Error(...); return err` |
 | **A2013** | The event buffer returned by `LinkEvent` or `MonitorEvent` discarded, where the producer's buffer is known to be non-empty. | `a.LinkEvent(ev)` as a statement |
 | **A2014** | A round trip in `Terminate`. `node.Wait` has already returned and the supervisor has already been told this process is down, so the write is abandoned or lands after the next incarnation's. | `Terminate(){ db.Exec(...) }` |
-| **A2014a** | `Terminate` dereferencing a field `Init` assigns only after its first fallible step. `Terminate` also runs when `Init` fails, against exactly that half built receiver. | `Terminate(){ a.conn.Close() }` |
+| **A2014a** | `Terminate` dereferencing a field `Init` assigns only after its first fallible step. An actor's `Terminate` also runs when `Init` fails, against exactly that half built receiver. Reported once per field. A dereference guarded by a field `Init` never assigns cannot run there and is not reported, and an application is excluded, because its `Terminate` never runs after a failed `Init`. | `Terminate(){ a.conn.Close() }` |
 | **A2015** | A self timer chain armed from a second place, so two self-sustaining chains run in parallel and every arrival adds another. | two `a.SendAfter(a.PID(), tick{}, d)` |
-| **A2016** | `RegisterName`, `RegisterEvent` or `CreateAlias` performed in a message handler that `Init` deferred to. `Spawn` has already returned the process to its parent, so a peer addressing it gets `ErrProcessUnknown` and nothing retries. | `Init(){ a.Send(a.PID(), setup{}) }` |
-| **A2017** | `Init` returning a framework sentinel as control flow. Init's error is the spawn failure channel, so every caller has to know that this particular error means success. | `return gen.TerminateReasonNormal` |
+| **A2016** | `RegisterName`, `RegisterEvent` or `CreateAlias` performed in a message handler that `Init` deferred to. `Spawn` has already returned the process to its parent, so until that message is handled a peer addressing the name gets `ErrProcessUnknown` and a subscriber to the event gets `ErrEventUnknown`. A deferred alias is tier 3, since nobody can address it before it exists. | `Init(){ a.Send(a.PID(), setup{}) }` |
+| **A2017** | `Init` returning a framework sentinel as control flow. Init's error is the spawn failure channel, so every caller has to know that this particular error means success. Reported when a spawner in the package does not decode it, or when none is visible; each `StartChild` of a SimpleOneForOne supervisor is a spawner. An `Init` returning the sentinel when it rejects its arguments is always reported. A framework error such as `gen.ErrIncorrect` is an ordinary spawn failure, not a sentinel. | `return gen.TerminateReasonNormal` |
 | **A2018** | `EventOptions.Notify` set while the producer handles neither `MessageEventStart` nor `MessageEventStop`, so it cannot tell whether anyone is listening. | `EventOptions{Notify: true}` |
 | **A2020** | An `fmt.Errorf` value with `%w` reaching another process. The operand lives in an unexported field EDF cannot reach, so the peer decodes the text and `errors.Is` stops matching while the message still reads correctly. `gen.Errorf` is the drop-in fix. | `Response{Error: fmt.Errorf("x: %w", ErrY)}` |
 | **A2021** | A named type reachable through a registered type's fields that nobody registers. Registration resolves the field graph eagerly and answers "no encoder for type X", so the node that does not get it from another list refuses to start. | `RegisterTypes([]any{Order{}})` where `Order.Status` is unregistered |
 | **A2022** | A package level sentinel put on the wire but missing from this package's error registration list. It is encoded as its text, so `errors.Is` answers false after the hop. | `Response{Error: ErrNotFound}` |
 | **A2023** | An application `Init` returning an error after acquiring a resource. An application whose `Init` fails never gets its `Terminate` called, so nothing closes what it opened. | `a.pool = p; ...; return err` |
-| **A2024** | A round trip inside an actor callback. An actor handles one message at a time, so everything queued behind it waits for the answer too. The surface is configured; see below. | `HandleMessage(){ repo.Load(ctx) }` |
+| **A2024** | A round trip inside an actor callback. An actor handles one message at a time, so everything queued behind it waits for the answer too. A round trip inside a closure that is only stored is not counted. The surface is configured; see below. | `HandleMessage(){ repo.Load(ctx) }` |
 | **A2025** | Router or pool options init rejects: an empty route name, a nil route factory, a duplicate route name, a missing `WorkerFactory`. | `act.RouterOptions{Routes: [...]}` |
 | **A2026** | A call the runtime rejects on its arguments, whatever the state: an exit signal to self, parent or leader, a nil termination reason, a compression threshold below the floor, an enum value out of range, a self link or monitor, an address whose type is none of `gen.PID`, `gen.ProcessID`, `gen.Alias` or `gen.Atom`. | `a.Send("worker", msg)` |
 | **A2027** | A meta `Start` that returns without blocking. The meta ends when `Start` returns, so the alias `SpawnMeta` just handed back is already dead. | `Start() error { return nil }` |
-| **A2028** | A request inside `HandleCall` whose budget is not smaller than the caller's. The caller is waiting on its own default five seconds, so the inner wait can outlast the outer one and the reply lands after the caller gave up. An actor also handles one message at a time, so a pool of workers in front of one such handler serialises and every request past the first blows its budget queueing. | `HandleCall(...) { return a.Call(peer, req) }` |
-| **A2029** | A callback returning the error of an operation on another process - send, request, monitor, demonitor, link, unlink - directly or through its own helpers, and in the guarded form as well as the returned one. The callback's error is the termination reason, so this process stops whenever that peer is gone, which is the ordinary condition in a distributed system. A shared actor takes its in-memory state with it. | `if err := a.MonitorPID(pid); err != nil { return err }` |
+| **A2028** | A request inside `HandleCall` whose budget is not smaller than the caller's. The caller is waiting on its own default five seconds, so the inner wait can outlast the outer one and the reply lands after the caller gave up. An actor also handles one message at a time, so a pool of workers in front of one such handler serialises and every request past the first blows its budget queueing. A default request counts as five seconds, and a request whose timeout does not resolve is not reported. | `HandleCall(...) { return a.Call(peer, req) }` |
+| **A2029** | A callback returning the error of an operation on another process - send, request, monitor, demonitor, and link or unlink in a process that traps exits - directly or through its own helpers, and in the guarded form as well as the returned one. The callback's error is the termination reason, so this process stops whenever that peer is gone, which is the ordinary condition in a distributed system. A shared actor takes its in-memory state with it. Not reported: `SendEvent`, which concerns only the process's own registration; a meta the process spawned; the registrar's event; `Init`, whose error is a spawn refusal. Each site is reported once and keyed by its target. | `if err := a.MonitorPID(pid); err != nil { return err }` |
 
 ### Tier 3 - hygiene, off by default
 
@@ -177,8 +177,8 @@ rule reads it:
 | Verdict | Meaning | Tier |
 | --- | --- | --- |
 | `transferred` | allocated in this callback and unreachable from the actor afterwards | no finding |
-| `received` | the payload arrived in a message and is forwarded on, so ownership stayed with whoever built it | 2 |
-| `unknown` | the payload came from a parameter this package cannot resolve, or a call whose result origin is not known | 2 |
+| `received` | the payload arrived in a message, or came back as the response to a request, and is forwarded on, so ownership stayed with whoever built it | 2 |
+| `unknown` | the payload came from a parameter this package cannot resolve, or a call whose result origin is not known, such as a method of an interface any package may implement | 2 |
 | `owned` | the payload is reachable from a field of the sending actor | 1 if the actor writes into that field, 2 if it only ever replaces the whole value |
 
 Two things make the verdict worth trusting.
@@ -189,15 +189,22 @@ values point at. A clone of a map of values is a real copy and reports nothing.
 
 It crosses functions. Whether a call returns memory that is fresh, memory derived from one
 of its own parameters, or memory derived from its receiver travels as a fact on the
-function object, so a helper in another package resolves. For a send inside an unexported
-helper, the verdict is the worst provenance any caller in the package passes for that
-parameter; an exported helper stays `unknown`, because this package cannot see who calls
-it.
+function object, so a helper in another package resolves. A method of an interface with an unexported
+method resolves too, since every implementation lives in its package. For a send inside an
+unexported helper, the verdict is the worst provenance any caller in the package passes
+for that parameter, followed through callers that are helpers themselves; an exported
+helper stays `unknown`, because this package cannot see who calls it.
 
 What separates the two `owned` tiers is a write, not a reference. A field the actor assigns
 into (`f[k] = v`, `f = append(f, x)`, `delete`, `clear`, a write through an element) is a
 live race with the receiver. A field only ever replaced whole hands out a value nobody
 mutates afterwards: the sharing holds today, and only the type fails to say that it has to.
+
+The write has to reach the memory the payload holds. Writes are matched by access path:
+`f[k].done = true` does not touch a payload that shares `f[k].items`, storing the payload
+into a map field is a write into the map and not into the payload, a write to a value
+field of a struct held by value cannot reach a copy already sent, and a write made only
+in `Init` happens before any handler can send.
 
 ---
 
@@ -243,6 +250,7 @@ interfaces:
 surfaces:
   # Calls that wait with no bound. transitive:false means a caller does not
   # inherit the verdict, which is right for a mutex and wrong for a sleep.
+  # A raw channel operation travels only within the analysed module.
   blocking:
     - { func: time.Sleep, why: sleep }
     - { recv: sync.Mutex, method: Lock, why: mutex, transitive: false }

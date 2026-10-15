@@ -23,7 +23,9 @@ The site is reported by exactly one of the two rules. Both ask the model the sam
 question, so A1001 stays silent wherever this fires and neither ever describes one
 line twice with two different fixes.
 
-Two payload forms count: the field itself, and a field of a composite literal payload.
+Two payload forms count: the field itself, and a field of a composite literal payload,
+either of them also behind a conversion between types of one shape. A conversion out
+of a string copies and hands over nothing.
 A slice expression or an index on a receiver field is deliberately not one, because
 that is A1007's question about memory escaping the owner, and a nested literal's own
 fields belong to that type rather than to this send. A field reached through a local
@@ -31,10 +33,15 @@ is not a form this rule can see either, and it does not have to be: provenance c
 the verdict to A1001, which reports that site with the same tier.
 
 The tier is whether the owner writes into that memory. A field the actor assigns into
-(f[k] = v, f = append(f, x), delete, clear, a write through an element) is a live race
-with the receiver and reports at tier 1. A field only ever replaced whole is a value
-nobody mutates once it is out, so it reports at tier 2: the sharing holds today, and
-only the type fails to say that it has to.
+(f[k] = v, f = append(f, x), delete, clear, a write through an element or through the
+map behind a field of a value struct) is a live race with the receiver and reports at
+tier 1. A field only ever replaced whole, or whose writes land only in its own value
+fields, is a value nobody mutates once it is out, so it reports at tier 2: the sharing
+holds today, and only the type fails to say that it has to. Writes made only in Init
+do not count for a send from another callback, since Init is over before it runs.
+
+A send to the actor's own mailbox is not reported: this same actor handles it, one
+message at a time.
 
 The guardedness gate is the same as A1001's: a pointee that synchronizes its own
 state was shared on purpose. Spawn arguments are not this rule's surface at all,
@@ -60,7 +67,7 @@ func run(pass *analysis.Pass) (any, error) {
 			payload = "the payload"
 		}
 
-		tier, clause := verdict(m.OwnFieldMutated(site.In, share.Field), share.Field)
+		tier, clause := verdict(m.OwnStateMutated(site.In, share), share.Field)
 
 		m.Report(pass, share.Pos,
 			ergomodel.Finding{

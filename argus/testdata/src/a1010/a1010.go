@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app"
 	"ergo.services/ergo/gen"
 	"golang.org/x/sync/errgroup"
 
@@ -18,7 +19,7 @@ type Worker struct {
 
 func (w *Worker) HandleMessage(from gen.PID, message any) error {
 	// no boundary: a panic here takes the whole node down
-	go func() { // want `\[tier1\] \[A1010\] goroutine started in HandleMessage has no recover`
+	go func() { // want `\[tier1\] \[A1010\] goroutine started in HandleMessage has no recover, so a panic in it takes down the whole node instead of this one process; defer a recover in the goroutine body or move the work into a meta process$`
 		doWork()
 	}()
 
@@ -184,6 +185,43 @@ func (c *Client) HandleMessage(from gen.PID, message any) error {
 // reachable from a callback.
 func (c *Client) relay() {
 	workers.Start() // want `\[tier1\] \[A1010\] a path reachable from a callback calls workers.Start`
+}
+
+// An application is not a process: a goroutine its callbacks start has no boundary
+// either and still takes the node down, but there is no one process it could have
+// cost instead, and gen.Application has no SpawnMeta to move the work into.
+type Service struct {
+	app.Application
+	job func()
+}
+
+func (s *Service) Init(ref gen.Ref, mode gen.ApplicationMode) error {
+	go func() { // want `\[tier1\] \[A1010\] goroutine started in Init has no recover, so a panic in it takes down the whole node; defer a recover in the goroutine body$`
+		doWork()
+	}()
+	time.AfterFunc(time.Second, func() { doWork() }) // want `\[tier1\] \[A1010\] Init hands this func literal to time.AfterFunc, which runs it on a goroutine of its own, and this func literal defers no recover, so a panic in it takes down the whole node; defer a recover at the top of this func literal$`
+	time.AfterFunc(time.Second, s.job)               // want `\[tier2\] \[A1010\] Init hands this func value to time.AfterFunc, .* a panic there would take down the whole node. Pass a func literal`
+	workers.Start()                                  // want `\[tier1\] \[A1010\] Init calls workers.Start, which starts a goroutine with no recover \(workers.go:9\), so a panic in it takes down the whole node; defer a recover in that goroutine body$`
+	s.warm()
+	return nil
+}
+
+// reached only from an application callback, so worded for one
+func (s *Service) warm() {
+	go doWork() // want `\[tier1\] \[A1010\] goroutine started in a path reachable from a callback has no recover, so a panic in it takes down the whole node; defer a recover in the goroutine body$`
+}
+
+// a helper a process callback reaches keeps the process wording, even when an
+// application reaches it too
+func shared() {
+	go doWork() // want `\[tier1\] \[A1010\] goroutine started in a path reachable from a callback has no recover, so a panic in it takes down the whole node instead of this one process`
+}
+
+func (s *Service) Start(ref gen.Ref, mode gen.ApplicationMode) { shared() }
+
+func (t *Timers) HandleEvent(event gen.MessageEvent) error {
+	shared()
+	return nil
 }
 
 // Two deliberate exceptions on one statement take two rule ids, because A1004 and

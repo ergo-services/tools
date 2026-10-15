@@ -13,7 +13,11 @@ type FuncBehavior struct {
 	Bounded bool
 	Why     string
 
-	Timeout     int
+	Request bool
+
+	Timeout        int
+	TimeoutDefault bool
+
 	Spawns      bool
 	Unrecovered bool
 	Recovers    bool
@@ -30,6 +34,13 @@ type FuncBehavior struct {
 	NodeMethod string
 
 	FmtWrapped bool
+}
+
+func (b FuncBehavior) Budget() Budget {
+	if b.Timeout < 1 {
+		return Budget{}
+	}
+	return Budget{Seconds: b.Timeout, Default: b.TimeoutDefault, Known: true}
 }
 
 type GoSite struct {
@@ -77,6 +88,7 @@ func (m *Model) buildBehavior(decls []*ast.FuncDecl, byDecl map[*ast.FuncDecl]*C
 		obj      *types.Func
 		behavior FuncBehavior
 		callees  []*types.Func
+		executed map[*types.Func]bool
 	}
 	nodes := make([]*node, 0, len(decls))
 	byObj := make(map[*types.Func]*node, len(decls))
@@ -90,7 +102,7 @@ func (m *Model) buildBehavior(decls []*ast.FuncDecl, byDecl map[*ast.FuncDecl]*C
 			continue
 		}
 		n := &node{decl: decl, obj: obj}
-		n.behavior, n.callees = m.localBehavior(decl, byDecl[decl], obj)
+		n.behavior, n.callees, n.executed = m.localBehavior(decl, byDecl[decl], obj)
 		nodes = append(nodes, n)
 		byObj[obj] = n
 	}
@@ -105,7 +117,7 @@ func (m *Model) buildBehavior(decls []*ast.FuncDecl, byDecl map[*ast.FuncDecl]*C
 				} else {
 					from = m.importedBehavior(callee)
 				}
-				if merge(&n.behavior, from) {
+				if merge(&n.behavior, from, n.executed[callee]) {
 					changed = true
 				}
 			}
@@ -140,7 +152,27 @@ func (m *Model) buildBehavior(decls []*ast.FuncDecl, byDecl map[*ast.FuncDecl]*C
 	}
 }
 
-func merge(into *FuncBehavior, from FuncBehavior) bool {
+func merge(into *FuncBehavior, from FuncBehavior, executed bool) bool {
+	changed := false
+	if executed {
+		if mergeWaits(into, from) {
+			changed = true
+		}
+	}
+	if from.Spawns && into.Spawns == false {
+		into.Spawns, changed = true, true
+	}
+	if from.Unrecovered && into.Unrecovered == false {
+		into.Unrecovered, changed = true, true
+		into.UnrecoveredIn, into.UnrecoveredAt = from.UnrecoveredIn, from.UnrecoveredAt
+	}
+	if from.Replies && into.Replies == false {
+		into.Replies, changed = true, true
+	}
+	return changed
+}
+
+func mergeWaits(into *FuncBehavior, from FuncBehavior) bool {
 	changed := false
 	if from.Blocks {
 
@@ -153,19 +185,11 @@ func merge(into *FuncBehavior, from FuncBehavior) bool {
 			changed = true
 		}
 	}
-	if from.Timeout > into.Timeout {
-		into.Timeout = from.Timeout
+	if from.Request && into.Request == false {
+		into.Request, changed = true, true
+	}
+	if widen(&into.Timeout, &into.TimeoutDefault, from.Budget()) {
 		changed = true
-	}
-	if from.Spawns && into.Spawns == false {
-		into.Spawns, changed = true, true
-	}
-	if from.Unrecovered && into.Unrecovered == false {
-		into.Unrecovered, changed = true, true
-		into.UnrecoveredIn, into.UnrecoveredAt = from.UnrecoveredIn, from.UnrecoveredAt
-	}
-	if from.Replies && into.Replies == false {
-		into.Replies, changed = true, true
 	}
 	if from.RoundTrip != "" && into.RoundTrip == "" {
 		into.RoundTrip, changed = from.RoundTrip, true
@@ -181,7 +205,9 @@ func (m *Model) importedBehavior(fn *types.Func) FuncBehavior {
 	var blocks BlocksFact
 	if m.pass.ImportObjectFact(fn, &blocks) {
 		out.Blocks, out.Bounded, out.Why = true, blocks.Bounded, blocks.Why
+		out.Request = blocks.Request
 		out.Timeout = int(blocks.Timeout / time.Second)
+		out.TimeoutDefault = blocks.TimeoutDefault
 	}
 	var spawns SpawnsFact
 	if m.pass.ImportObjectFact(fn, &spawns) {
@@ -230,7 +256,11 @@ func (m *Model) importedBehavior(fn *types.Func) FuncBehavior {
 func (m *Model) publishBehavior(fn *types.Func, b FuncBehavior) {
 
 	if b.Blocks && m.ownedCode() {
-		m.pass.ExportObjectFact(fn, &BlocksFact{Why: b.Why, Bounded: b.Bounded})
+		m.pass.ExportObjectFact(fn, &BlocksFact{
+			Why: b.Why, Bounded: b.Bounded,
+			Request: b.Request, Timeout: time.Duration(b.Timeout) * time.Second,
+			TimeoutDefault: b.TimeoutDefault,
+		})
 	}
 	if b.Spawns {
 		m.pass.ExportObjectFact(fn, &SpawnsFact{})
@@ -270,31 +300,50 @@ func (m *Model) ownedCode() bool {
 	return m.pkgAllowed == false && m.stdlib() == false
 }
 
-func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func) (FuncBehavior, []*types.Func) {
+func (m *Model) foreign() bool {
+	if mod := m.pass.Module; mod != nil && mod.Path != "" {
+		return mod.Main == false && mod.Version != ""
+	}
+	return m.editable() == false
+}
+
+func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func) (FuncBehavior, []*types.Func, map[*types.Func]bool) {
 	var out FuncBehavior
 	var callees []*types.Func
+	executed := map[*types.Func]bool{}
 
 	recv := receiverName(decl)
-	selectDepth := 0
-	guardedSelect := 0
+	stored, nested := 0, 0
+	guarded := map[ast.Node]bool{}
+
+	closures := m.executedClosures(decl.Body)
+	fresh := m.freshSends(decl.Body)
+
+	channels := m.foreign() == false
 
 	var walk func(n ast.Node) bool
 	walk = func(n ast.Node) bool {
 		switch x := n.(type) {
+		case *ast.FuncLit:
+
+			nested++
+			if closures[x] == false {
+				stored++
+			}
+			ast.Inspect(x.Body, walk)
+			if closures[x] == false {
+				stored--
+			}
+			nested--
+			return false
+
 		case *ast.SelectStmt:
 
-			selectDepth++
 			if selectHasEscape(m.pass.TypesInfo, x) {
-				guardedSelect++
+				for _, op := range commOps(x) {
+					guarded[op] = true
+				}
 			}
-			for _, stmt := range x.Body.List {
-				ast.Inspect(stmt, walk)
-			}
-			if selectHasEscape(m.pass.TypesInfo, x) {
-				guardedSelect--
-			}
-			selectDepth--
-			return false
 
 		case *ast.GoStmt:
 			out.Spawns = true
@@ -314,24 +363,32 @@ func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func)
 			return false
 
 		case *ast.SendStmt:
-			if guardedSelect == 0 {
-				out.Blocks, out.Bounded, out.Why = true, false, "channel send"
+			if guarded[x] == false && stored == 0 && fresh[x] == false {
+				if channels {
+					out.Blocks, out.Bounded, out.Why = true, false, "channel send"
+				}
 				m.blockSites = append(m.blockSites, &BlockSite{
 					Pos: x.Pos(), Why: "a channel send", In: cb, Enclosing: obj,
 				})
 			}
 
 		case *ast.UnaryExpr:
-			if x.Op == token.ARROW && guardedSelect == 0 {
-				out.Blocks, out.Bounded, out.Why = true, false, "channel receive"
+			if x.Op == token.ARROW && guarded[x] == false && stored == 0 {
+				if channels {
+					out.Blocks, out.Bounded, out.Why = true, false, "channel receive"
+				}
 				m.blockSites = append(m.blockSites, &BlockSite{
 					Pos: x.Pos(), Why: "a channel receive", In: cb, Enclosing: obj,
 				})
 			}
 
 		case *ast.ReturnStmt:
-			if recv != "" {
+
+			if recv != "" && nested == 0 {
 				for i, result := range x.Results {
+					if t := m.pass.TypesInfo.TypeOf(result); t != nil && m.Shape(t).Aliasing == false {
+						continue
+					}
 					if field, ok := receiverDerived(result, recv); ok {
 						out.Escapes = append(out.Escapes, Escape{Result: i, Field: field})
 					}
@@ -350,14 +407,7 @@ func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func)
 			if ok == false {
 				return true
 			}
-			if fn.Pkg() == m.pass.Pkg {
-				callees = append(callees, fn)
-			} else {
-				callees = append(callees, fn)
-			}
-			if seconds, isRequest := m.requestTimeout(fn, x); isRequest && seconds > out.Timeout {
-				out.Timeout = seconds
-			}
+			callees = append(callees, fn)
 
 			if method, idx, isNodeSend := m.nodeSendThroughParam(decl, x); isNodeSend {
 				out.NodeSender = appendUnique(out.NodeSender, idx)
@@ -365,24 +415,9 @@ func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func)
 					out.NodeMethod = method
 				}
 			}
-			if why, isRoundTrip := m.roundTripSurface(fn); isRoundTrip && out.RoundTrip == "" {
-				out.RoundTrip = why
-			}
-			if why, isExternal := m.externalRoundTrip(fn); isExternal && out.External == "" {
-				out.External = why
-			}
-			if why, bounded, transitive, isBlocking := m.blockingSurface(fn); isBlocking {
-
-				if bounded == false {
-					m.blockSites = append(m.blockSites, &BlockSite{
-						Pos: x.Pos(), Why: why, In: cb, Enclosing: obj,
-					})
-				}
-				if transitive || bounded {
-					if out.Blocks == false || (out.Bounded && bounded == false) {
-						out.Blocks, out.Bounded, out.Why = true, bounded, why
-					}
-				}
+			if stored == 0 {
+				executed[fn] = true
+				m.waitsAt(&out, fn, x, cb, obj)
 			}
 			switch fn.Name() {
 
@@ -411,7 +446,34 @@ func (m *Model) localBehavior(decl *ast.FuncDecl, cb *Callback, obj *types.Func)
 
 	out.Recovers = callsRecover(decl.Body, m.pass.TypesInfo)
 	out.FmtWrapped = m.returnsFmtWrapped(decl)
-	return out, callees
+	return out, callees, executed
+}
+
+func (m *Model) waitsAt(out *FuncBehavior, fn *types.Func, call *ast.CallExpr, cb *Callback, obj *types.Func) {
+	if budget, isRequest := m.requestBudget(fn, call); isRequest {
+		out.Request = true
+		widen(&out.Timeout, &out.TimeoutDefault, budget)
+	}
+	if why, isRoundTrip := m.roundTripSurface(fn); isRoundTrip && out.RoundTrip == "" {
+		out.RoundTrip = why
+	}
+	if why, isExternal := m.externalRoundTrip(fn); isExternal && out.External == "" {
+		out.External = why
+	}
+	why, bounded, transitive, isBlocking := m.blockingSurface(fn)
+	if isBlocking == false {
+		return
+	}
+	if bounded == false {
+		m.blockSites = append(m.blockSites, &BlockSite{
+			Pos: call.Pos(), Why: why, In: cb, Enclosing: obj,
+		})
+	}
+	if transitive || bounded {
+		if out.Blocks == false || (out.Bounded && bounded == false) {
+			out.Blocks, out.Bounded, out.Why = true, bounded, why
+		}
+	}
 }
 
 func (m *Model) returnsFmtWrapped(decl *ast.FuncDecl) bool {
@@ -482,39 +544,72 @@ func (m *Model) blockingCall(fn *types.Func) (why string, bounded bool, ok bool)
 	return why, bounded, ok
 }
 
-func (m *Model) RequestTimeout(fn *types.Func, call *ast.CallExpr) (int, bool) {
-	if fn == nil || call == nil {
-		return 0, false
-	}
-	return m.requestTimeout(fn, call)
+const DefaultRequestTimeout = 5
+
+type Budget struct {
+	Seconds int
+	Default bool
+	Known   bool
 }
 
-func (m *Model) requestTimeout(fn *types.Func, call *ast.CallExpr) (int, bool) {
+func defaultBudget() Budget {
+	return Budget{Seconds: DefaultRequestTimeout, Default: true, Known: true}
+}
+
+func (m *Model) RequestBudget(fn *types.Func, call *ast.CallExpr) (Budget, bool) {
+	if fn == nil || call == nil {
+		return Budget{}, false
+	}
+	return m.requestBudget(fn, call)
+}
+
+func (m *Model) requestBudget(fn *types.Func, call *ast.CallExpr) (Budget, bool) {
 	if fn.Pkg() == nil || strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) == false {
-		return 0, false
+		return Budget{}, false
 	}
 	switch fn.Name() {
 	case "Call", "CallImportant", "CallWithPriority":
+		return defaultBudget(), true
 
-		return 0, true
 	case "CallWithTimeout", "CallPID", "CallProcessID", "CallAlias":
-
-		if len(call.Args) >= 3 {
-			if v := m.resolveValue(call.Args[2]); v.HasInt {
-				return int(v.Int), true
-			}
+		if len(call.Args) < 3 {
+			return Budget{}, true
 		}
-		return 0, true
+		v := m.resolveValue(call.Args[2])
+		if v.HasInt == false {
+			return Budget{}, true
+		}
+		if v.Int < 1 {
+			return defaultBudget(), true
+		}
+		return Budget{Seconds: int(v.Int), Known: true}, true
 	}
-	return 0, false
+	return Budget{}, false
 }
+
+func widen(timeout *int, isDefault *bool, b Budget) bool {
+	if b.Known == false {
+		return false
+	}
+	switch {
+	case b.Seconds > *timeout:
+		*timeout, *isDefault = b.Seconds, b.Default
+		return true
+	case b.Seconds == *timeout && b.Default && *isDefault == false:
+		*isDefault = true
+		return true
+	}
+	return false
+}
+
+const requestWhy = "request"
 
 func (m *Model) blockingSurface(fn *types.Func) (string, bool, bool, bool) {
 	if fn.Pkg() != nil && strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) {
 		switch fn.Name() {
 		case "Call", "CallWithTimeout", "CallWithPriority", "CallImportant",
 			"CallPID", "CallProcessID", "CallAlias":
-			return "request", true, true, true
+			return requestWhy, true, true, true
 		}
 	}
 	recv := recvTypePath(fn)
@@ -649,26 +744,75 @@ func selectHasEscape(info *types.Info, sel *ast.SelectStmt) bool {
 		if clause.Comm == nil {
 			return true
 		}
-		found := false
-		ast.Inspect(clause.Comm, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if ok == false {
-				return true
-			}
-			switch fun := call.Fun.(type) {
-			case *ast.SelectorExpr:
-				switch fun.Sel.Name {
-				case "After", "Tick", "Done":
-					found = true
-				}
-			}
-			return true
-		})
-		if found {
+		if recv := commReceive(clause.Comm); recv != nil && escapeChannel(info, recv.X) {
 			return true
 		}
 	}
 	return false
+}
+
+func commOps(sel *ast.SelectStmt) []ast.Node {
+	var out []ast.Node
+	for _, stmt := range sel.Body.List {
+		clause, ok := stmt.(*ast.CommClause)
+		if ok == false || clause.Comm == nil {
+			continue
+		}
+		if send, isSend := clause.Comm.(*ast.SendStmt); isSend {
+			out = append(out, send)
+			continue
+		}
+		if recv := commReceive(clause.Comm); recv != nil {
+			out = append(out, recv)
+		}
+	}
+	return out
+}
+
+func commReceive(comm ast.Stmt) *ast.UnaryExpr {
+	var e ast.Expr
+	switch x := comm.(type) {
+	case *ast.ExprStmt:
+		e = x.X
+	case *ast.AssignStmt:
+		if len(x.Rhs) == 1 {
+			e = x.Rhs[0]
+		}
+	}
+	if e == nil {
+		return nil
+	}
+	recv, ok := ast.Unparen(e).(*ast.UnaryExpr)
+	if ok == false || recv.Op != token.ARROW {
+		return nil
+	}
+	return recv
+}
+
+func escapeChannel(info *types.Info, ch ast.Expr) bool {
+	if t := info.TypeOf(ch); t != nil {
+		if c, isChan := t.Underlying().(*types.Chan); isChan && isTimeTime(c.Elem()) {
+			return true
+		}
+	}
+	call, ok := ast.Unparen(ch).(*ast.CallExpr)
+	if ok == false {
+		return false
+	}
+	sel, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if ok == false {
+		return false
+	}
+	fn, ok := info.Uses[sel.Sel].(*types.Func)
+	return ok && fn.Pkg() != nil && fn.Pkg().Path() == "context" && fn.Name() == "Done"
+}
+
+func isTimeTime(t types.Type) bool {
+	named, ok := types.Unalias(t).(*types.Named)
+	if ok == false || named.Obj().Pkg() == nil {
+		return false
+	}
+	return named.Obj().Pkg().Path() == "time" && named.Obj().Name() == "Time"
 }
 
 func (m *Model) bodyRecovers(g *ast.GoStmt) bool {

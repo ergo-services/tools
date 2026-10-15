@@ -2,6 +2,7 @@ package sendreason
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"strings"
@@ -23,10 +24,10 @@ liveness is made to depend on whether a peer is still reachable - and a peer tha
 the ordinary condition in a distributed system, not a reason to stop.
 
 The surface is every operation that asks something of another process: the send family, a
-request and its timeout variants, and monitor, demonitor, link and unlink. The failure of
-each one is information about that peer, and a monitor is the sharpest case, because it
-fails exactly when the peer died between the spawn and the watch - the moment the watcher
-exists to survive.
+request and its timeout variants, and monitor and demonitor. The failure of each one is
+information about that peer, and a monitor is the sharpest case, because it fails exactly
+when the peer died between the spawn and the watch - the moment the watcher exists to
+survive.
 
 Both forms count, and the guarded one is the form that ships the defect:
 
@@ -36,9 +37,23 @@ Both forms count, and the guarded one is the form that ships the defect:
         return err
     }
 
-An operation on this process's own name is not on this list. RegisterName fails because the
-name is taken, which is a real reason to refuse to start, and a send to the actor's own PID
-is about this process rather than about a peer.
+Not on the list, because the failure is not news about a peer:
+
+    - an operation on this process's own name or PID. RegisterName fails because the name
+      is taken, which is a real reason to refuse to start, and a send to the actor's own PID
+      is about this process.
+    - SendEvent. It publishes to this process's own registration: it fails only when the
+      process is not running, the node is stopping, or the event or its token is not this
+      process's to use. A missing subscriber is not an error.
+    - an operation on a meta this process spawned. The meta belongs to the process and is
+      terminated with it, so its absence is this process's own state.
+    - an event obtained from the registrar. The node owns it and never unregisters it.
+    - link and unlink, unless the process traps exits. Without the trap a link already ties
+      this process's liveness to the peer, so returning a failed link is the link's own
+      outcome. With SetTrapExit(true) the peer's exit is only a message, and the returned
+      error is what makes the absence fatal, so the link family is reported there.
+    - Init. Its error is a spawn refusal returned to the spawner, not a termination reason,
+      and refusing to start without a dependency is legitimate.
 
 The failure is rarely where it is written. An actor that answers its caller with
 "return a.Send(caller, result)" dies the first time a caller went away before the answer
@@ -52,6 +67,11 @@ had already deleted. The runtime answered ErrProcessUnknown, the callback return
 an approvals process serving many tenants restarted empty; the timers it held were gone with
 it and the requests waiting on them never finished.
 
+Each site is reported once, under the first callback that reaches it; a helper that is
+itself a callback is analysed as its own root. The finding key names the callback, the
+helper chain, the operation and the target expression, so a baseline entry accepts that
+operation on that target and not any other site in the same callback.
+
 The fix is to decide what the failure means instead of forwarding it: log it and return nil,
 or handle the absence - drop the entry, monitor the peer, answer somebody else.
 
@@ -63,7 +83,7 @@ Source: actors.md`,
 
 var peerMethods = map[string]bool{
 	"Send": true, "SendPID": true, "SendProcessID": true, "SendAlias": true,
-	"SendWithPriority": true, "SendImportant": true, "SendEvent": true,
+	"SendWithPriority": true, "SendImportant": true,
 	"SendResponse": true, "SendResponseError": true,
 	"SendResponseImportant": true, "SendResponseErrorImportant": true,
 
@@ -71,41 +91,61 @@ var peerMethods = map[string]bool{
 	"DemonitorPID": true, "DemonitorProcessID": true, "DemonitorAlias": true,
 	"DemonitorEvent": true,
 
-	"LinkPID": true, "LinkProcessID": true, "LinkAlias": true, "LinkEvent": true,
-	"UnlinkPID": true, "UnlinkProcessID": true, "UnlinkAlias": true, "UnlinkEvent": true,
-
 	"Call": true, "CallWithTimeout": true, "CallWithPriority": true, "CallImportant": true,
 	"CallPID": true, "CallProcessID": true, "CallAlias": true,
 }
+
+var linkMethods = map[string]bool{
+	"LinkPID": true, "LinkProcessID": true, "LinkAlias": true, "LinkEvent": true,
+	"UnlinkPID": true, "UnlinkProcessID": true, "UnlinkAlias": true, "UnlinkEvent": true,
+}
+
+const ergoPrefix = "ergo.services/ergo"
 
 type finder struct {
 	pass  *analysis.Pass
 	m     *ergomodel.Model
 	owner *types.Named
+	traps bool
+	roots map[*types.Func]bool
 	seen  map[*types.Func]bool
 }
 
 type hit struct {
 	pos    token.Pos
 	method string
+	target string
 	chain  []string
 }
 
 func run(pass *analysis.Pass) (any, error) {
 	m := ergomodel.From(pass)
-	reported := map[string]bool{}
+	trapping := trappingBehaviors(pass)
 
+	var analysed []*ergomodel.Callback
+	roots := map[*types.Func]bool{}
 	for _, cb := range m.Callbacks {
-		if cb.Meta || cb.Behavior == nil {
+		if cb.Meta || cb.Behavior == nil || cb.Kind == ergomodel.CBInit {
 			continue
 		}
-		f := &finder{pass: pass, m: m, owner: cb.Behavior, seen: map[*types.Func]bool{}}
+		analysed = append(analysed, cb)
+		if fn, ok := pass.TypesInfo.Defs[cb.Decl.Name].(*types.Func); ok {
+			roots[fn] = true
+		}
+	}
+
+	reported := map[token.Pos]bool{}
+	for _, cb := range analysed {
+		f := &finder{pass: pass, m: m, owner: cb.Behavior, traps: trapping[cb.Behavior],
+			roots: roots, seen: map[*types.Func]bool{}}
 		for _, h := range f.in(cb.Decl) {
-			id := ergomodel.CallbackID(cb) + ":" + strings.Join(h.chain, ">") + h.method
-			if reported[id] == true {
+			if reported[h.pos] == true {
 				continue
 			}
-			reported[id] = true
+			reported[h.pos] = true
+
+			path := append(append([]string{}, h.chain...), h.method)
+			id := ergomodel.CallbackID(cb) + ":" + strings.Join(path, ">") + "@" + h.target
 
 			m.Report(pass, h.pos,
 				ergomodel.Finding{
@@ -147,12 +187,12 @@ func (f *finder) in(decl *ast.FuncDecl) []hit {
 			}
 
 			if method := f.peerMethod(callee); method != "" {
-				if f.toSelf(call) == false {
-					out = append(out, hit{pos: call.Pos(), method: method})
+				if f.onPeer(decl, call) {
+					out = append(out, hit{pos: call.Pos(), method: method, target: targetKey(call)})
 				}
 				continue
 			}
-			if ownerOf(callee) != f.owner || f.seen[callee] == true {
+			if ownerOf(callee) != f.owner || f.seen[callee] == true || f.roots[callee] == true {
 				continue
 			}
 			f.seen[callee] = true
@@ -183,25 +223,124 @@ func (f *finder) returned(decl *ast.FuncDecl, result ast.Expr, at token.Pos) []*
 }
 
 func (f *finder) peerMethod(fn *types.Func) string {
-	if peerMethods[fn.Name()] == false || fn.Pkg() == nil {
+	if fn.Pkg() == nil || strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) == false {
 		return ""
 	}
-	if strings.HasPrefix(fn.Pkg().Path(), "ergo.services/ergo") == false {
+	if peerMethods[fn.Name()] == false && (linkMethods[fn.Name()] == false || f.traps == false) {
 		return ""
 	}
 	return fn.Name() + "()"
 }
 
-func (f *finder) toSelf(call *ast.CallExpr) bool {
+func (f *finder) onPeer(decl *ast.FuncDecl, call *ast.CallExpr) bool {
 	if len(call.Args) == 0 {
+		return true
+	}
+	switch target := ast.Unparen(call.Args[0]).(type) {
+	case *ast.CallExpr:
+		sel, ok := target.Fun.(*ast.SelectorExpr)
+		return ok == false || sel.Sel.Name != "PID"
+	case *ast.Ident:
+		bound, ok := f.m.BoundBefore(decl, target, call.Pos())
+		if ok == false {
+			return true
+		}
+		src, ok := bound.(*ast.CallExpr)
+		if ok == false {
+			return true
+		}
+		fn := f.callee(src)
+		if fn == nil || fn.Pkg() == nil || strings.HasPrefix(fn.Pkg().Path(), ergoPrefix) == false {
+			return true
+		}
+		switch fn.Name() {
+		case "SpawnMeta":
+			return f.ownHandle(decl, src) == false
+		case "Event":
+			return isRegistrar(ownerOf(fn)) == false
+		}
+	}
+	return true
+}
+
+func (f *finder) ownHandle(decl *ast.FuncDecl, call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if ok == false || decl.Recv == nil || len(decl.Recv.List) == 0 || len(decl.Recv.List[0].Names) == 0 {
 		return false
 	}
-	inner, ok := call.Args[0].(*ast.CallExpr)
+	x := sel.X
+	for {
+		inner, isSel := x.(*ast.SelectorExpr)
+		if isSel == false {
+			break
+		}
+		field, isVar := f.pass.TypesInfo.Uses[inner.Sel].(*types.Var)
+		if isVar == false || field.Embedded() == false {
+			return false
+		}
+		x = inner.X
+	}
+	id, ok := x.(*ast.Ident)
 	if ok == false {
 		return false
 	}
-	sel, ok := inner.Fun.(*ast.SelectorExpr)
-	return ok && sel.Sel.Name == "PID"
+	recv := f.pass.TypesInfo.Defs[decl.Recv.List[0].Names[0]]
+	return recv != nil && f.pass.TypesInfo.Uses[id] == recv
+}
+
+func isRegistrar(named *types.Named) bool {
+	if named == nil || named.Obj().Pkg() == nil {
+		return false
+	}
+	return named.Obj().Pkg().Path() == ergoPrefix+"/gen" && named.Obj().Name() == "Registrar"
+}
+
+func targetKey(call *ast.CallExpr) string {
+	if len(call.Args) == 0 {
+		return "-"
+	}
+	return strings.Join(strings.Fields(types.ExprString(call.Args[0])), "")
+}
+
+func trappingBehaviors(pass *analysis.Pass) map[*types.Named]bool {
+	out := map[*types.Named]bool{}
+	for _, file := range pass.Files {
+		for _, d := range file.Decls {
+			decl, ok := d.(*ast.FuncDecl)
+			if ok == false || decl.Recv == nil || decl.Body == nil {
+				continue
+			}
+			fn, ok := pass.TypesInfo.Defs[decl.Name].(*types.Func)
+			if ok == false {
+				continue
+			}
+			owner := ownerOf(fn)
+			if owner == nil {
+				continue
+			}
+			ast.Inspect(decl.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if ok == false || len(call.Args) != 1 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if ok == false || sel.Sel.Name != "SetTrapExit" {
+					return true
+				}
+				callee, ok := pass.TypesInfo.Uses[sel.Sel].(*types.Func)
+				if ok == false || callee.Pkg() == nil || strings.HasPrefix(callee.Pkg().Path(), ergoPrefix) == false {
+					return true
+				}
+				tv := pass.TypesInfo.Types[call.Args[0]]
+				if tv.Value != nil && tv.Value.Kind() == constant.Bool && constant.BoolVal(tv.Value) == false {
+					return true
+				}
+				out[owner] = true
+				return true
+			})
+		}
+	}
+	return out
 }
 
 func (f *finder) callee(call *ast.CallExpr) *types.Func {

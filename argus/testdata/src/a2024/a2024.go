@@ -43,6 +43,28 @@ func (w *Worker) HandleEvent(message gen.MessageEvent) error {
 	return nil
 }
 
+// A round trip in a closure the callback only stores runs later, on whoever calls
+// it; one run in place is the callback's.
+type Hooks struct {
+	act.Actor
+	client  *http.Client
+	onEvent func()
+}
+
+func (h *Hooks) HandleMessage(from gen.PID, message any) error {
+	h.onEvent = func() { h.client.Get("http://peer/event") }
+	h.install()
+
+	defer func() {
+		h.client.Get("http://peer/done") // want `A2024.*HandleMessage performs an HTTP round trip`
+	}()
+	return nil
+}
+
+func (h *Hooks) install() {
+	h.onEvent = func() { h.client.Get("http://peer/event") }
+}
+
 // Terminate belongs to A2014, which has its own argument about it.
 func (w *Worker) Terminate(reason error) {
 	w.db.Exec("update jobs set state = 'failed'")

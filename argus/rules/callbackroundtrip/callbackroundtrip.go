@@ -38,6 +38,8 @@ interface method resolves exactly like a concrete one.
 
 The verdict travels through the project's own helpers, so a handler calling a
 service method that eventually issues the query is reported with the chain named.
+Only code that runs before the callback returns counts: a round trip in a closure
+the callback stores or registers as a handler is made later, by whoever calls it.
 
 A request to another process is not reported. It is a round trip, and A2014 reports
 it in Terminate for that reason, but between two actors it is the framework working
@@ -100,10 +102,7 @@ func roundTrips(pass *analysis.Pass, m *ergomodel.Model, decl *ast.FuncDecl) []r
 	var out []roundTrip
 	seen := map[token.Pos]bool{}
 
-	ast.Inspect(decl.Body, func(n ast.Node) bool {
-		if _, isGo := n.(*ast.GoStmt); isGo {
-			return false
-		}
+	m.InspectExecuted(decl.Body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if ok == false {
 			return true

@@ -91,3 +91,16 @@ func (i *Indirect) start() error {
 }
 
 func (i *Indirect) stop() bool { return true }
+
+// a framework error is an ordinary spawn failure, not a sentinel that means success:
+// refusing bad arguments with gen.ErrIncorrect tells the spawner exactly what happened
+type BadArgs struct {
+	act.Actor
+}
+
+func (b *BadArgs) Init(args ...any) error {
+	if len(args) == 0 {
+		return gen.ErrIncorrect
+	}
+	return nil
+}

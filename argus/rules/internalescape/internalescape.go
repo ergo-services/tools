@@ -32,7 +32,9 @@ slice, slices.Clone, bytes.Clone, maps.Clone and a string conversion are all
 recognized as copies.
 
 A receiver allocated and abandoned in the same callback is not reported, so handing
-over the bytes of a local buffer stays quiet.`,
+over the bytes of a local buffer stays quiet. Neither is a result that carries no
+reference at all: a string or a number read out of a field is a copy by the time the
+caller holds it.`,
 	URL:      "https://docs.ergo.services/tools/argus#A1007",
 	Requires: []*analysis.Analyzer{ergomodel.Analyzer},
 	Run:      run,
@@ -70,18 +72,27 @@ func run(pass *analysis.Pass) (any, error) {
 			if ok == false {
 				continue
 			}
-			escapes := m.Behavior(fn).Escapes
-			if len(escapes) == 0 {
+			escape, escapes := aliasingEscape(m, fn)
+			if escapes == false {
 				continue
 			}
 			m.Report(pass, call.Pos(),
 				ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindEscape, Tier: 1,
-					ID: ergomodel.FuncID(fn), Witness: escapes[0].Field},
+					ID: ergomodel.FuncID(fn), Witness: escape.Field},
 				"%s returns memory derived from its receiver's %s field, and it is handed to %s: the owner keeps mutating it while the receiving actor reads it, so copy before sending",
-				fn.Name(), escapes[0].Field, t.what)
+				fn.Name(), escape.Field, t.what)
 		}
 	}
 	return nil, nil
+}
+
+func aliasingEscape(m *ergomodel.Model, fn *types.Func) (ergomodel.Escape, bool) {
+	for _, escape := range m.Behavior(fn).Escapes {
+		if m.ResultAliases(fn, escape.Result) {
+			return escape, true
+		}
+	}
+	return ergomodel.Escape{}, false
 }
 
 func escapingCalls(pass *analysis.Pass, m *ergomodel.Model, e ast.Expr, singles map[string]ast.Expr) []*ast.CallExpr {

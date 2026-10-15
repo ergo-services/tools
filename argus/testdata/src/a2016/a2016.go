@@ -13,7 +13,7 @@ type MessageRename struct{ Name gen.Atom }
 
 // The canonical form: Init defers to itself and the handler establishes the identity,
 // so between Spawn returning and that message being handled the process is unreachable
-// by name and its event is unknown.
+// by name and its event is unknown. Each kind says what fails for it, and only that.
 type Deferred struct {
 	act.Actor
 	token gen.Ref
@@ -27,10 +27,10 @@ func (d *Deferred) Init(args ...any) error {
 func (d *Deferred) HandleMessage(from gen.PID, message any) error {
 	switch message.(type) {
 	case MessageSetup:
-		if err := d.RegisterName("worker"); err != nil { // want `\[tier2\] \[A2016\] HandleMessage establishes a registered name, and Init deferred to this handler with the self send at line \d+`
+		if err := d.RegisterName("worker"); err != nil { // want `\[tier2\] \[A2016\] HandleMessage registers a name, deferred by the self send in Init at line \d+: Spawn has handed this process to its parent before this message is handled, and until then a send or call addressed to the name fails with gen.ErrProcessUnknown. Register it in Init, or name the process at spawn with SpawnRegister, after which RegisterName returns gen.ErrTaken$`
 			return err
 		}
-		token, err := d.RegisterEvent("ticks", gen.EventOptions{}) // want `A2016.*establishes an event`
+		token, err := d.RegisterEvent("ticks", gen.EventOptions{}) // want `\[tier2\] \[A2016\] HandleMessage registers an event, deferred by the self send in Init at line \d+: Spawn has handed this process to its parent before this message is handled, and until then LinkEvent and MonitorEvent on the event fail with gen.ErrEventUnknown. Call RegisterEvent in Init and defer only the slow work$`
 		if err != nil {
 			return err
 		}
@@ -98,7 +98,9 @@ func (l *Lazy) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
 
-// The registered name is the same mailbox as the PID, so the deferral is the same.
+// The registered name is the same mailbox as the PID, so the deferral is the same. A
+// deferred alias fails nobody outside, since nobody can address it before it exists,
+// so it is only a hint about the ordering the handlers rely on.
 type ByName struct {
 	act.Actor
 }
@@ -109,7 +111,7 @@ func (b *ByName) Init(args ...any) error {
 }
 
 func (b *ByName) HandleMessage(from gen.PID, message any) error {
-	alias, err := b.CreateAlias() // want `A2016.*establishes an alias`
+	alias, err := b.CreateAlias() // want `\[tier3\] \[A2016\] HandleMessage creates an alias, deferred by the self send in Init at line \d+: nobody can address the alias before it exists, so nothing outside fails`
 	if err != nil {
 		return err
 	}

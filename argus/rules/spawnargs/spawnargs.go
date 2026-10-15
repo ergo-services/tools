@@ -21,10 +21,19 @@ with no synchronization between two goroutines that are supposed to be isolated.
 is where dependency-style sharing concentrates in real code, which is why it owns the
 spawn surface on its own: A1001 and A1006 cover the send surface and stay silent here.
 
-The same guardedness test applies: a pointee that synchronizes its own state is
-deliberately shared and is not reported. A spawn in a test file is not reported
-either: the child is a mock and the arguments are fixture data, and a real sharing
-defect shows up at the production spawn of the same factory.
+The same guardedness test applies, to each part of the argument on its own: a
+pointee that synchronizes its own state is deliberately shared and is not reported,
+and neither is an allowlisted type, while the rest of the argument still counts. An
+interface field is never exempt, because the object behind it is whatever the parent
+put there. The finding names the field that is shared. The tier follows A1001: a
+parent that writes into the memory the argument holds is a race with the child, and
+a write made only in Init is over before a spawn from any other callback. A fresh
+container of copies taken from the parent's state shares what the copies reference,
+not the container they were copied out of.
+
+A spawn in a test file is not reported either: the child is a mock and the arguments
+are fixture data, and a real sharing defect shows up at the production spawn of the
+same factory.
 
 A func typed argument is called out separately. It cannot be serialized, so it also
 pins the child to this node: a remote spawn of the same factory will fail.`,
@@ -54,31 +63,18 @@ func run(pass *analysis.Pass) (any, error) {
 			if types.IsInterface(types.Unalias(t)) {
 				continue
 			}
-			if _, ok := m.AllowedType(t); ok {
+
+			exposure, exposed := m.Exposed(t)
+			if exposed == false {
 				continue
 			}
 
-			s := m.Shape(t)
-			if s.Aliasing == false {
-				continue
-			}
-			ref := s.Ref
-			if ref == nil {
-				ref = t
-			}
-			if _, ok := m.AllowedType(ref); ok {
-				continue
-			}
-			if m.Guarded(ref) == ergomodel.GuardGuarded {
-				continue
-			}
-
-			if _, isFunc := types.Unalias(ref).(*types.Signature); isFunc {
+			if _, isFunc := types.Unalias(exposure.Ref).(*types.Signature); isFunc {
 				m.Report(pass, arg.Pos(),
 					ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindShape, Tier: 2,
-						ID: ergomodel.TypeID(t), Witness: s.Witness},
+						ID: ergomodel.TypeID(t), Witness: exposure.Witness},
 					"%s is passed to %s and carries a func (%s), which cannot be serialized: the child is pinned to this node and a remote spawn of the same factory fails",
-					typeName(t), site.Method, s.Witness)
+					typeName(t), site.Method, exposure.Witness)
 				continue
 			}
 
@@ -86,12 +82,16 @@ func run(pass *analysis.Pass) (any, error) {
 				continue
 			}
 
+			witness := m.WitnessVia(t, origin.Via)
+			if witness == "" {
+				witness = typeName(t)
+			}
 			tier, clause := verdict(origin)
 			m.Report(pass, arg.Pos(),
 				ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindShape, Tier: tier,
-					ID: ergomodel.TypeID(t), Witness: s.Witness},
+					ID: ergomodel.TypeID(t), Witness: exposure.Witness},
 				"%s is passed to %s and shares unsynchronized memory with the parent: %s; the child runs on its own goroutine, and %s",
-				typeName(t), site.Method, witness(s, t), clause)
+				typeName(t), site.Method, witness, clause)
 		}
 	}
 	return nil, nil
@@ -116,13 +116,6 @@ func verdict(origin ergomodel.Origin) (int, string) {
 	}
 	return 2, "the origin of this argument does not resolve here (" + origin.Witness +
 		"), so the parent may still hold it"
-}
-
-func witness(s ergomodel.Shape, t types.Type) string {
-	if s.Witness != "" {
-		return s.Witness
-	}
-	return typeName(t)
 }
 
 func typeName(t types.Type) string {

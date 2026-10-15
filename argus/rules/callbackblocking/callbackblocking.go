@@ -21,17 +21,38 @@ node, and the sender of the next message simply waits. The rule is "no unbounded
 blocking", not "no blocking".
 
 Reported: time.Sleep, a naked Lock, RLock or WaitGroup.Wait, and a channel send or
-receive that is not lexically inside a select with an escape hatch. Capacity is
-deliberately ignored, because a send on a full buffered channel blocks just as hard
-and the capacity is not in the channel type.
+receive that is not lexically inside a select with an escape hatch. An escape hatch is
+a default, a receive from a channel of time.Time, which is what time.After, a Timer
+and a Ticker hand out, or a context's Done.
 
-Not reported: a select with a default, a timeout arm or a context-done arm; TryLock;
-and every framework Call, which is always bounded, by DefaultRequestTimeout when no
-timeout is given. The bound is why the blocking fact carries one: without it an
-ordinary Call in HandleMessage would be a tier 1 finding.
+Capacity is ignored in general, because a send on a full buffered channel blocks just
+as hard and the capacity is not in the channel type. The exception is the one the
+source decides: a channel the function has just made with a constant buffer of N, sent
+to at most N times before it is used in any other way, has room for each of those
+sends. A send in a loop is never counted, since the loop count is not in the source.
+
+Not reported: a select with an escape hatch; TryLock; and every framework Call, which
+is always bounded, by DefaultRequestTimeout when no timeout is given. The bound is why
+the blocking fact carries one: without it an ordinary Call in HandleMessage would be a
+tier 1 finding.
+
+Only code that runs while the callback runs is in scope. A go statement is another
+goroutine, and so is the body of a func literal that is stored, registered as a handler
+or given to time.AfterFunc: it runs later, somewhere else. A literal called in place,
+deferred, bound to a local that is only ever called, or handed to a caller that runs it
+before returning (sort.Slice, slices.SortFunc, sync.Map.Range, sync.Once.Do and a few
+more) is part of the callback.
+
+A wait reached through a call is reported at the call. A channel operation inside
+another module does not travel that way, just as a mutex does not: whether a
+library's send can block rests on invariants of the library that its source does not
+state, so every caller of a library that uses channels internally would be reported.
+The configured surfaces, time.Sleep and WaitGroup.Wait, travel from any module.
 
 A meta Start is a run loop and is expected to block, so it is excluded. A meta Init
-runs on the spawning actor's goroutine and is in scope.
+runs on the spawning actor's goroutine and is in scope. Application callbacks are
+excluded: an application has no mailbox, its Init, Start and Stop run on goroutines of
+their own under deadlines of their own, and Terminate runs as the application unwinds.
 
 The I/O half of this rule is not shipped: deciding whether a deadline established in
 another frame bounds a read needs dataflow, and guessing it either way produces the
@@ -47,10 +68,7 @@ func run(pass *analysis.Pass) (any, error) {
 	m := ergomodel.From(pass)
 
 	for _, site := range m.BlockSites() {
-		if site.In == nil {
-			continue
-		}
-		if site.In.Kind == ergomodel.CBMetaStart && site.In.Meta {
+		if site.In == nil || inScope(site.In) == false {
 			continue
 		}
 		m.Report(pass, site.Pos,
@@ -61,13 +79,10 @@ func run(pass *analysis.Pass) (any, error) {
 	}
 
 	for _, cb := range m.Callbacks {
-		if cb.Kind == ergomodel.CBMetaStart && cb.Meta {
+		if inScope(cb) == false {
 			continue
 		}
-		ast.Inspect(cb.Decl.Body, func(n ast.Node) bool {
-			if _, ok := n.(*ast.GoStmt); ok {
-				return false
-			}
+		m.InspectExecuted(cb.Decl.Body, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if ok == false {
 				return true
@@ -93,6 +108,13 @@ func run(pass *analysis.Pass) (any, error) {
 		})
 	}
 	return nil, nil
+}
+
+func inScope(cb *ergomodel.Callback) bool {
+	if cb.Kind == ergomodel.CBMetaStart && cb.Meta {
+		return false
+	}
+	return cb.Application == false
 }
 
 func calleeFunc(pass *analysis.Pass, call *ast.CallExpr) *types.Func {

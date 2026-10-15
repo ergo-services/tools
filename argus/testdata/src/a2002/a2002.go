@@ -9,26 +9,89 @@ type RequestState struct{}
 
 type MessageReply struct{ Data string }
 
-// No reply is possible: every path is (nil, nil), ref is never used, and no method of
-// the type replies. Every caller waits out its full timeout.
+// No reply is possible for the requests it handles: every path is (nil, nil), ref is
+// never used, no method of the type replies, and yet the request is read. Every
+// caller of RequestState waits out its full timeout.
 type Silent struct {
 	act.Actor
+	asked int
 }
 
-func (s *Silent) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) { // want `\[tier2\] \[A2002\] HandleCall returns \(nil, nil\) on every path, never uses ref`
-	s.Log().Error("unhandled request %T", request)
+func (s *Silent) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) { // want `\[tier2\] \[A2002\] HandleCall reads the request but returns \(nil, nil\) on every path, never uses ref`
+	switch request.(type) {
+	case RequestState:
+		s.asked++
+	}
 	return nil, nil
 }
 
-// Logging the ref is not keeping it, so this is the same defect.
+// Logging the ref is not keeping it, so a handler that reads the request and only logs
+// the ref is the same defect.
 type LogsRef struct {
 	act.Actor
 }
 
-func (l *LogsRef) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) { // want `A2002.*HandleCall returns \(nil, nil\) on every path`
+func (l *LogsRef) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) { // want `A2002.*HandleCall reads the request but returns \(nil, nil\) on every path`
 	l.Log().Debug("dropping request %s from %s", ref, from)
+	if _, ok := request.(RequestState); ok {
+		l.Log().Info("state requested")
+	}
 	return nil, nil
 }
+
+// The request is the last parameter whatever it is called.
+type Renamed struct {
+	act.Actor
+	asked int
+}
+
+func (r *Renamed) HandleCall(from gen.PID, ref gen.Ref, req any) (any, error) { // want `A2002.*HandleCall reads the request`
+	if _, ok := req.(RequestState); ok {
+		r.asked++
+	}
+	return nil, nil
+}
+
+// A stub that never reads its request is the framework's own fallback written out:
+// act.Actor's HandleCall logs and returns (nil, nil) too, and the caller times out the
+// same way whether the stub is written or inherited. Logging the request, even its
+// type, is not reading it.
+type Stub struct {
+	act.Actor
+}
+
+func (s *Stub) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	s.Log().Error("unhandled request %T from %s", request, from)
+	return nil, nil
+}
+
+// The same stub with the ref logged and the request unnamed.
+type Unnamed struct {
+	act.Actor
+}
+
+func (u *Unnamed) HandleCall(from gen.PID, ref gen.Ref, _ any) (any, error) {
+	u.Log().Debug("dropping request %s from %s", ref, from)
+	return nil, nil
+}
+
+// A meta behavior has no fallback to inherit, so the stub is how it says it takes no
+// calls; the framework's port, TCP, UDP and web meta processes are written exactly so.
+type Reader struct {
+	gen.MetaProcess
+}
+
+func (r *Reader) Init(process gen.MetaProcess) error { return nil }
+
+func (r *Reader) Start() error { return nil }
+
+func (r *Reader) HandleMessage(from gen.PID, message any) error { return nil }
+
+func (r *Reader) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	return nil, nil
+}
+
+func (r *Reader) Terminate(reason error) {}
 
 // The deferred reply: the token is stored and something later replies. This is the
 // legitimate use of two nils and must stay silent.
@@ -124,5 +187,6 @@ type Recorded struct {
 
 //argus:allow A2002 the caller is fire-and-forget by contract
 func (r *Recorded) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	_ = request.(RequestState)
 	return nil, nil
 }

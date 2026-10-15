@@ -10,10 +10,10 @@ import (
 type FactoryInfo struct {
 	Behavior string
 
-	InitBlocks  bool
-	InitWhy     string
-	InitTimeout int
-	Chain       string
+	InitBlocks bool
+	InitWhy    string
+	InitBudget Budget
+	Chain      string
 
 	Sentinel string
 }
@@ -38,7 +38,7 @@ func (m *Model) FactoryOf(e ast.Expr) (types.Object, FactoryInfo, bool) {
 	var budget InitBudgetFact
 	if m.pass.ImportObjectFact(obj, &budget) {
 		info.InitBlocks, info.InitWhy = budget.Blocks, budget.Why
-		info.InitTimeout, info.Chain = budget.InnerTimeout, budget.Chain
+		info.InitBudget, info.Chain = budget.Inner, budget.Chain
 		found = true
 	}
 	var sentinel InitSentinelFact
@@ -76,7 +76,7 @@ func (m *Model) buildFactories(decls []*ast.FuncDecl) {
 	record := func(obj types.Object, behavior string, pos token.Pos) {
 		info := FactoryInfo{Behavior: behavior}
 		if decl, ok := inits[behavior]; ok {
-			info.InitBlocks, info.InitWhy, info.InitTimeout, info.Chain = m.initBudget(decl)
+			info.InitBlocks, info.InitWhy, info.InitBudget, info.Chain = m.initBudget(decl)
 			info.Sentinel = m.initSentinel(decl)
 		}
 		m.factories[obj] = info
@@ -150,6 +150,10 @@ func returnsProcessBehavior(t types.Type) bool {
 func (m *Model) returnedBehavior(body *ast.BlockStmt) string {
 	found := ""
 	ast.Inspect(body, func(n ast.Node) bool {
+
+		if _, isLit := n.(*ast.FuncLit); isLit {
+			return false
+		}
 		ret, ok := n.(*ast.ReturnStmt)
 		if ok == false || len(ret.Results) != 1 {
 			return true
@@ -173,16 +177,16 @@ func (m *Model) returnedBehavior(body *ast.BlockStmt) string {
 	return found
 }
 
-func (m *Model) initBudget(decl *ast.FuncDecl) (blocks bool, why string, timeout int, chain string) {
+func (m *Model) initBudget(decl *ast.FuncDecl) (blocks bool, why string, budget Budget, chain string) {
 	obj, _ := m.pass.TypesInfo.Defs[decl.Name].(*types.Func)
 	if obj == nil {
-		return false, "", 0, ""
+		return false, "", Budget{}, ""
 	}
 	b := m.Behavior(obj)
-	if b.Blocks == false {
-		return false, "", 0, ""
+	if b.Request == false {
+		return false, "", Budget{}, ""
 	}
-	return true, b.Why, b.Timeout, FuncID(obj)
+	return true, requestWhy, b.Budget(), FuncID(obj)
 }
 
 func (m *Model) SentinelReturn(decl *ast.FuncDecl) (string, string, token.Pos) {
@@ -264,7 +268,7 @@ func (m *Model) frameworkSentinel(e ast.Expr) string {
 		return ""
 	}
 	name := sel.Sel.Name
-	if strings.HasPrefix(name, "TerminateReason") || strings.HasPrefix(name, "Err") {
+	if strings.HasPrefix(name, "TerminateReason") {
 		return "gen." + name
 	}
 	return ""
@@ -277,7 +281,7 @@ func (m *Model) publishFactory(obj types.Object, info FactoryInfo) {
 	if info.InitBlocks {
 		m.pass.ExportObjectFact(obj, &InitBudgetFact{
 			Blocks: true, Why: info.InitWhy,
-			InnerTimeout: info.InitTimeout, Chain: info.Chain,
+			Inner: info.InitBudget, Chain: info.Chain,
 		})
 	}
 	if info.Sentinel != "" {
@@ -328,9 +332,7 @@ func (m *Model) buildSpawnPoints(decls []*ast.FuncDecl) {
 			}
 
 			if idx+1 < len(call.Args) {
-				opts := &SupervisorSpec{fields: map[string]FieldValue{}}
-				m.foldLiteral(opts, call.Args[idx+1], "")
-				point.Timeout = opts.fields["InitTimeout"]
+				point.Timeout = m.spawnTimeout(call.Args[idx+1])
 			}
 			m.spawnPoints = append(m.spawnPoints, point)
 			return true
@@ -348,7 +350,7 @@ func (m *Model) buildSpawnPoints(decls []*ast.FuncDecl) {
 			}
 			m.spawnPoints = append(m.spawnPoints, &SpawnPoint{
 				Pos: spec.ChildrenPos[i], Factory: factory.Expr,
-				Timeout: child["Options.InitTimeout"],
+				Timeout: nestedField(child, "Options", "InitTimeout"),
 				What:    "supervisor child spec", In: spec.Decl,
 			})
 		}
@@ -358,10 +360,54 @@ func (m *Model) buildSpawnPoints(decls []*ast.FuncDecl) {
 		if member.Factory.Expr == nil {
 			continue
 		}
+		timeout := member.InitTimeout
+		if timeout.Set == false {
+			timeout = m.memberTimeout(member)
+		}
 		m.spawnPoints = append(m.spawnPoints, &SpawnPoint{
 			Pos: member.Pos, Factory: member.Factory.Expr,
-			Timeout: member.InitTimeout, Capped: true,
+			Timeout: timeout, Capped: true,
 			What: "application group member", In: member.In,
 		})
 	}
+}
+
+func (m *Model) spawnTimeout(options ast.Expr) FieldValue {
+	opts := &SupervisorSpec{fields: map[string]FieldValue{}}
+	if m.foldValue(opts, options, "") == false {
+		return FieldValue{Set: true, Pos: options.Pos(), Expr: options}
+	}
+	return opts.fields["InitTimeout"]
+}
+
+func nestedField(fields map[string]FieldValue, parent, name string) FieldValue {
+	if fv, ok := fields[parent+"."+name]; ok {
+		return fv
+	}
+	if opaque := fields[parent]; opaque.Set {
+		return FieldValue{Set: true, Pos: opaque.Pos, Expr: opaque.Expr}
+	}
+	return FieldValue{}
+}
+
+func (m *Model) memberTimeout(member *AppMember) FieldValue {
+	var out FieldValue
+	if member.In == nil || member.In.Body == nil {
+		return out
+	}
+	found := false
+	ast.Inspect(member.In.Body, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		lit, ok := n.(*ast.CompositeLit)
+		if ok == false || lit.Pos() != member.Pos {
+			return true
+		}
+		fields := &SupervisorSpec{fields: map[string]FieldValue{}}
+		m.foldLiteral(fields, lit, "")
+		out, found = nestedField(fields.fields, "Options", "InitTimeout"), true
+		return false
+	})
+	return out
 }

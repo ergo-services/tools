@@ -1,6 +1,8 @@
 package a2028
 
 import (
+	"net/http"
+
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
@@ -94,4 +96,65 @@ type Excused struct {
 func (e *Excused) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	//argus:allow A2028 the only caller uses CallWithTimeout(30)
 	return e.Call(e.backend, request)
+}
+
+// A request in a closure the handler only stores is made later, after the reply has
+// gone, so it has no caller's budget to outlast. One the handler runs in place is a
+// request of the handler.
+type Callbacks struct {
+	act.Actor
+	backend gen.PID
+	retry   func()
+}
+
+func (c *Callbacks) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	c.retry = func() { c.Call(c.backend, request) }
+	c.arm(request)
+
+	var out any
+	func() {
+		out, _ = c.Call(c.backend, request) // want `A2028.*HandleCall answers by making a request of its own with a budget of the default 5s`
+	}()
+	return out, nil
+}
+
+func (c *Callbacks) arm(request any) {
+	c.retry = func() { c.Call(c.backend, request) }
+}
+
+// A helper that does an HTTP round trip before its request is still making the
+// request.
+type Mixed struct {
+	act.Actor
+	backend gen.PID
+	client  *http.Client
+}
+
+func (m *Mixed) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	return m.refresh(request) // want `A2028.*HandleCall answers by making a request of its own, through refresh`
+}
+
+func (m *Mixed) refresh(request any) (any, error) {
+	m.client.Get("http://peer/version")
+	return m.Call(m.backend, request)
+}
+
+// The budget through a helper is the longest of its requests: a two second one does
+// not hide the default one next to it. A timeout of 0 is the default; one that does
+// not resolve is not a budget at all.
+type Budgets struct {
+	act.Actor
+	backend gen.PID
+	timeout int
+}
+
+func (b *Budgets) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	b.both(request)                          // want `A2028.*HandleCall answers by making a request of its own, through both with a budget of the default 5s`
+	b.CallWithTimeout(b.backend, request, 0) // want `A2028.*HandleCall answers by making a request of its own with a budget of the default 5s`
+	return b.CallWithTimeout(b.backend, request, b.timeout)
+}
+
+func (b *Budgets) both(request any) {
+	b.CallWithTimeout(b.backend, request, 2)
+	b.Call(b.backend, request)
 }

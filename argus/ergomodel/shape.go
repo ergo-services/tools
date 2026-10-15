@@ -385,11 +385,142 @@ func (m *Model) structShape(st *types.Struct, get func(types.Type) Shape) Shape 
 }
 
 func describeField(f *types.Var, fs Shape) string {
+	return describeVia(f, fs.Witness)
+}
+
+func describeVia(f *types.Var, inner string) string {
 	w := f.Name() + " " + short(f.Type())
-	if fs.Witness != "" && fs.Witness != short(f.Type()) {
-		w += " -> " + fs.Witness
+	if inner != "" && inner != short(f.Type()) {
+		w += " -> " + inner
 	}
 	return w
+}
+
+type Exposure struct {
+	Witness string
+	Ref     types.Type
+}
+
+func (m *Model) Exposed(t types.Type) (Exposure, bool) {
+	return m.exposed(t, map[types.Type]bool{})
+}
+
+func (m *Model) exposes(t types.Type) bool {
+	if t == nil {
+		return false
+	}
+	t = types.Unalias(t)
+	if m.Shape(t).Aliasing == false {
+		return false
+	}
+	if _, allowed := m.AllowedType(t); allowed {
+		return false
+	}
+	switch u := t.(type) {
+	case *types.Named:
+		if _, leaf := m.namedLeaf(u); leaf {
+			return true
+		}
+		switch u.Underlying().(type) {
+		case *types.Struct, *types.Array:
+			return m.exposes(u.Underlying())
+		}
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if m.exposes(u.Field(i).Type()) {
+				return true
+			}
+		}
+		return false
+	case *types.Array:
+		return m.exposes(u.Elem())
+	}
+	_, isPointer := t.Underlying().(*types.Pointer)
+	return isPointer == false || m.Guarded(t) != GuardGuarded
+}
+
+func (m *Model) exposed(t types.Type, seen map[types.Type]bool) (Exposure, bool) {
+	if t == nil {
+		return Exposure{}, false
+	}
+	t = types.Unalias(t)
+	if m.Shape(t).Aliasing == false {
+		return Exposure{}, false
+	}
+	if _, allowed := m.AllowedType(t); allowed {
+		return Exposure{}, false
+	}
+	switch u := t.(type) {
+	case *types.Named:
+		if _, leaf := m.namedLeaf(u); leaf {
+			s := m.Shape(t)
+			return Exposure{Witness: s.Witness, Ref: t}, true
+		}
+		switch u.Underlying().(type) {
+		case *types.Struct, *types.Array:
+			return m.exposed(u.Underlying(), seen)
+		}
+	case *types.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			f := u.Field(i)
+			inner, exposed := m.exposed(f.Type(), seen)
+			if exposed == false {
+				continue
+			}
+			return Exposure{Witness: describeVia(f, inner.Witness), Ref: inner.Ref}, true
+		}
+		return Exposure{}, false
+	case *types.Array:
+		return m.exposed(u.Elem(), seen)
+	}
+	if _, isPointer := t.Underlying().(*types.Pointer); isPointer && m.Guarded(t) == GuardGuarded {
+		return Exposure{}, false
+	}
+	s := m.Shape(t)
+	ref := s.Ref
+	if ref == nil {
+		ref = t
+	}
+	return Exposure{Witness: m.behind(t, s.Witness, seen), Ref: ref}, true
+}
+
+func (m *Model) behind(t types.Type, fallback string, seen map[types.Type]bool) string {
+	var hop string
+	var next []types.Type
+	switch u := t.Underlying().(type) {
+	case *types.Pointer:
+		hop, next = "*"+short(u.Elem()), []types.Type{u.Elem()}
+	case *types.Slice:
+		hop, next = "[]"+short(u.Elem()), []types.Type{u.Elem()}
+	case *types.Map:
+		hop, next = fmt.Sprintf("map[%s]%s", short(u.Key()), short(u.Elem())), []types.Type{u.Elem(), u.Key()}
+	default:
+		return fallback
+	}
+	if seen[t] {
+		return hop + " (recursive)"
+	}
+	seen[t] = true
+	for _, n := range next {
+		if inner, exposed := m.exposed(n, seen); exposed && inner.Witness != "" {
+			return hop + " -> " + inner.Witness
+		}
+	}
+	return hop
+}
+
+func (m *Model) WitnessVia(t types.Type, via []*types.Var) string {
+	if len(via) == 0 {
+		e, _ := m.Exposed(t)
+		return e.Witness
+	}
+	parts := make([]string, 0, len(via))
+	for _, f := range via[:len(via)-1] {
+		parts = append(parts, f.Name()+" "+short(f.Type()))
+	}
+	last := via[len(via)-1]
+	inner, _ := m.Exposed(last.Type())
+	return strings.Join(append(parts, describeVia(last, inner.Witness)), " -> ")
 }
 
 func (m *Model) interfaceShape(it *types.Interface) Shape {

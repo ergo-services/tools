@@ -101,45 +101,71 @@ func handleOf(e ast.Expr) string {
 	return ""
 }
 
+type violation struct {
+	call *ast.CallExpr
+	gate ergomodel.Gate
+	self string
+}
+
+func violations(pass *analysis.Pass, m *ergomodel.Model, cb *ergomodel.Callback) []violation {
+	surface := ergomodel.SurfaceOf(cb)
+
+	terminating := cb.Kind == ergomodel.CBTerminate && cb.Meta == false
+	metaPreStart := cb.Kind == ergomodel.CBInit && cb.Meta
+
+	var out []violation
+	ast.Inspect(cb.Decl.Body, func(n ast.Node) bool {
+
+		if _, ok := n.(*ast.GoStmt); ok {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if ok == false {
+			return true
+		}
+
+		if target, ok := selfPIDCall(pass, call); ok {
+			out = append(out, violation{call: call, self: target})
+			return true
+		}
+
+		gate, ok := m.GatedCall(call, surface)
+		if ok == false {
+			return true
+		}
+		if (terminating && gate.ForbidTerminated) || (metaPreStart && gate.ForbidMetaPreStart) {
+			out = append(out, violation{call: call, gate: gate})
+		}
+		return true
+	})
+	return out
+}
+
+func Reported(pass *analysis.Pass, m *ergomodel.Model, cb *ergomodel.Callback) map[*ast.CallExpr]bool {
+	out := map[*ast.CallExpr]bool{}
+	for _, v := range violations(pass, m, cb) {
+		out[v.call] = true
+	}
+	return out
+}
+
 func run(pass *analysis.Pass) (any, error) {
 	m := ergomodel.From(pass)
 
 	for _, cb := range m.Callbacks {
-		surface := ergomodel.SurfaceOf(cb)
-
-		terminating := cb.Kind == ergomodel.CBTerminate && cb.Meta == false
-		metaPreStart := cb.Kind == ergomodel.CBInit && cb.Meta
-
-		ast.Inspect(cb.Decl.Body, func(n ast.Node) bool {
-
-			if _, ok := n.(*ast.GoStmt); ok {
-				return false
-			}
-			call, ok := n.(*ast.CallExpr)
-			if ok == false {
-				return true
-			}
-
-			if target, ok := selfPIDCall(pass, call); ok {
+		for _, v := range violations(pass, m, cb) {
+			call, gate := v.call, v.gate
+			switch {
+			case v.self != "":
 				m.Report(pass, call.Pos(),
 					ergomodel.Finding{
 						Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
 						ID: ergomodel.CallbackID(cb) + ":selfPID", Witness: "own PID",
 					},
 					"a request to %s always returns ErrNotAllowed: the runtime refuses a call to the caller's own PID before routing it, so this line can never succeed",
-					target)
-				return true
-			}
+					v.self)
 
-			gate, ok := m.GatedCall(call, surface)
-			if ok == false {
-				return true
-			}
-
-			switch {
-			case terminating == false && metaPreStart == false:
-
-			case terminating && gate.ForbidTerminated:
+			case cb.Kind == ergomodel.CBTerminate:
 				detail := "returns ErrNotAllowed"
 				if gate.Observable() == false {
 					detail = "is silently ignored, and it returns nothing so the failure is invisible"
@@ -150,15 +176,14 @@ func run(pass *analysis.Pass) (any, error) {
 					"%s %s on the normal termination path, where the state is already Terminated; Send and SendExit are the ones that still work here",
 					gate.Method, detail)
 
-			case metaPreStart && gate.ForbidMetaPreStart:
+			default:
 				m.Report(pass, call.Pos(),
 					ergomodel.Finding{Rule: ruleID, Kind: ergomodel.KindCallback, Tier: 2,
 						ID: ergomodel.CallbackID(cb) + ":" + gate.Method},
 					"%s requires the meta to be Running, but Init runs before Start; Send, SendWithPriority and Spawn are the ones that work here",
 					gate.Method)
 			}
-			return true
-		})
+		}
 	}
 	return nil, nil
 }

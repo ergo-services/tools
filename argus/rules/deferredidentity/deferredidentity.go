@@ -17,19 +17,28 @@ var Analyzer = &analysis.Analyzer{
 	Name: "argusA2016",
 	Doc: `A2016: identity established in a message handler that Init sent to itself.
 
-Init is where a process becomes reachable. RegisterName is what makes peers able to
-address it, RegisterEvent is what makes subscribers able to link, and CreateAlias is
-what makes a token usable. Doing any of them one mailbox pass later is not the same
-thing done slightly later: Spawn has already returned the PID to the parent, the
-parent has already told whoever was waiting, and until the deferred message is handled
-a peer addressing the name gets ErrProcessUnknown and a subscriber gets
-ErrEventUnknown. Nothing retries those.
+Init is where a process becomes reachable. The message Init sends to itself is handled
+only after Init has returned, and by then Spawn has handed the PID to the parent, which
+may already have told whoever was waiting. Until the deferred message is handled, what
+the handler is about to establish does not exist, and each kind fails in its own way:
 
-It also splits an invariant. The token RegisterEvent returns is assigned in one
-callback and consumed in another, so publishing is correct only because the mailbox
-happened to deliver the setup message before the first thing that publishes. That is
-an ordering assumption no signature states and no test that starts by sending the
-setup message can fail.
+  - RegisterName: nothing is registered under the name, so a send or a call addressed
+    to it fails with gen.ErrProcessUnknown. A process that must be reachable by name
+    from the start registers it in Init, or is named at spawn with SpawnRegister, which
+    registers the name before Init runs; such a process already holds a name, and a
+    RegisterName on it returns gen.ErrTaken wherever it is called.
+  - RegisterEvent: the event is unknown, so LinkEvent and MonitorEvent on it fail with
+    gen.ErrEventUnknown.
+  - CreateAlias: nothing outside can fail, since nobody can address an alias before
+    the process hands it out. What is left is the split invariant below, so a deferred
+    alias is a tier 3 hint, not a defect.
+
+It also splits an invariant. The token RegisterEvent returns, or the alias, is assigned
+in one callback and consumed in another, so the code that uses it is correct only
+because the setup message is handled before anything that reads it. The self send is
+first in the main queue, but a message sent with a higher priority after Spawn returns
+is handled ahead of it. That is an ordering assumption no signature states and no test
+that starts by sending the setup message can fail.
 
 The reported shape is the deferred one specifically, not any late registration: Init
 sends a message to this same process, and a message handler of the same behavior
@@ -49,10 +58,13 @@ Source: actors.md, events.md`,
 	Run:      run,
 }
 
-var identityCalls = map[string]string{
-	"RegisterName":  "a registered name",
-	"RegisterEvent": "an event",
-	"CreateAlias":   "an alias",
+var identityCalls = map[string]struct {
+	tier    int
+	message string
+}{
+	"RegisterName":  {tier: 2, message: "%s registers a name, deferred by the self send in Init at line %d: Spawn has handed this process to its parent before this message is handled, and until then a send or call addressed to the name fails with gen.ErrProcessUnknown. Register it in Init, or name the process at spawn with SpawnRegister, after which RegisterName returns gen.ErrTaken"},
+	"RegisterEvent": {tier: 2, message: "%s registers an event, deferred by the self send in Init at line %d: Spawn has handed this process to its parent before this message is handled, and until then LinkEvent and MonitorEvent on the event fail with gen.ErrEventUnknown. Call RegisterEvent in Init and defer only the slow work"},
+	"CreateAlias":   {tier: 3, message: "%s creates an alias, deferred by the self send in Init at line %d: nobody can address the alias before it exists, so nothing outside fails, but a callback that reads it is correct only while this message is handled first. Call CreateAlias in Init"},
 }
 
 func run(pass *analysis.Pass) (any, error) {
@@ -84,13 +96,13 @@ func run(pass *analysis.Pass) (any, error) {
 			continue
 		}
 		for _, call := range identitySetup(pass, cb.Decl) {
+			kind := identityCalls[call.method]
 			m.Report(pass, call.pos,
 				ergomodel.Finding{
-					Rule: ruleID, Kind: ergomodel.KindRegistration, Tier: 2,
+					Rule: ruleID, Kind: ergomodel.KindRegistration, Tier: kind.tier,
 					ID: ergomodel.CallbackID(cb), Witness: call.method,
 				},
-				"%s establishes %s, and Init deferred to this handler with the self send at line %d: Spawn has already returned this process to its parent, so until this message is handled a peer addressing it gets gen.ErrProcessUnknown and a subscriber gets gen.ErrEventUnknown, and nothing retries either. Call %s in Init and defer only the slow work",
-				cb.Name, identityCalls[call.method], pass.Fset.Position(at).Line, call.method)
+				kind.message, cb.Name, pass.Fset.Position(at).Line)
 		}
 	}
 	return nil, nil
@@ -116,7 +128,10 @@ func identitySetup(pass *analysis.Pass, decl *ast.FuncDecl) []setup {
 			return true
 		}
 		sel, isSel := call.Fun.(*ast.SelectorExpr)
-		if isSel == false || identityCalls[sel.Sel.Name] == "" {
+		if isSel == false {
+			return true
+		}
+		if _, identity := identityCalls[sel.Sel.Name]; identity == false {
 			return true
 		}
 		fn, isFunc := pass.TypesInfo.Uses[sel.Sel].(*types.Func)

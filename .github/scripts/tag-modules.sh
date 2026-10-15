@@ -20,23 +20,35 @@ failed=()
 while IFS= read -r dir; do
     module="${dir#./}"
 
+    # A module this push did not touch is still tagged when its VERSION has no tag yet: that
+    # is a release whose own run failed before reaching this job.
+    changed=false
     if module_changed "$BASE_REF" "$HEAD_REF" "$module"; then
-        :
-    else
-        continue
+        changed=true
     fi
 
     if ! version=$(module_version "$module"); then
-        failed+=("$module: no usable VERSION")
+        if [[ "$changed" == true ]]; then
+            failed+=("$module: no usable VERSION")
+        fi
         continue
     fi
 
     if [[ "$version" == *-rc.* ]]; then
-        echo "$module: skipping prerelease $version"
+        if [[ "$changed" == true ]]; then
+            echo "$module: skipping prerelease $version"
+        fi
         continue
     fi
 
     tag="$(tag_prefix "$module")$version"
+
+    if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+        if [[ "$changed" == true ]]; then
+            echo "$tag already exists"
+        fi
+        continue
+    fi
 
     if out=$(git tag -a "$tag" "$HEAD_REF" -m "Release $tag" 2>&1); then
         created+=("$tag")

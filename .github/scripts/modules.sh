@@ -10,10 +10,11 @@ valid_ref() {
 
 module_dirs() {
     # A module under example/ is an illustration that builds against its parent through a
-    # replace directive. It is never published, so it is neither tagged nor validated, and
-    # demanding a VERSION of it would fail every run.
+    # replace directive, and one under testdata/ is a test fixture the go tool ignores. Neither
+    # is ever published, so neither is tagged nor validated, and demanding a VERSION of it
+    # would fail every run.
     find . -name go.mod -not -path './.git/*' \
-        -not -path '*/example/*' -not -path '*/examples/*' \
+        -not -path '*/example/*' -not -path '*/examples/*' -not -path '*/testdata/*' \
         -exec dirname {} \; | sort
 }
 
